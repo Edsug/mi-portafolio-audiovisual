@@ -1,4 +1,4 @@
-// routes/fileRoutes.js - Con debugging mejorado
+// routes/fileRoutes.js - Con debugging mejorado para PostgreSQL
 const express = require('express');
 const multer  = require('multer');
 const path    = require('path');
@@ -66,7 +66,7 @@ router.use((req, res, next) => {
 router.post('/subir', (req, res, next) => {
   console.log('📤 === INICIO RUTA /subir ===');
   
-  upload.single('archivo')(req, res, (err) => {
+  upload.single('archivo')(req, res, async (err) => {
     if (err) {
       console.error('❌ Error en multer:', err);
       if (err instanceof multer.MulterError) {
@@ -92,13 +92,25 @@ router.post('/subir', (req, res, next) => {
       console.log('   - MIME:', req.file.mimetype);
     }
     
-    // Pasar al controlador
-    subirArchivo(req, res);
+    try {
+      // Pasar al controlador (ahora async)
+      await subirArchivo(req, res);
+    } catch (error) {
+      console.error('❌ Error en controlador subirArchivo:', error);
+      res.status(500).json({ error: 'Error al procesar archivo' });
+    }
   });
 });
 
 // Ruta para obtener archivos
-router.get('/', obtenerArchivos);
+router.get('/', async (req, res, next) => {
+  try {
+    await obtenerArchivos(req, res);
+  } catch (error) {
+    console.error('❌ Error en obtenerArchivos:', error);
+    next(error);
+  }
+});
 
 // Middleware de manejo de errores
 router.use((error, req, res, next) => {

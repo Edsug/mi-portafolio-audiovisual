@@ -1,254 +1,259 @@
-// controllers/sesionesController.js
-const db = require('../models/db');
-const fs = require('fs');
-const path = require('path');
+// Controllers/sesionesController.js - Convertido a PostgreSQL
+const { 
+  queryMany, 
+  queryOne, 
+  insertAndGetId, 
+  query 
+} = require('../database');
 
-const crearSesion = (req, res) => {
-  const { nombre, descripcion } = req.body;
-  db.run(
-    `INSERT INTO sesiones (nombre, descripcion) VALUES (?, ?)`,
-    [nombre, descripcion],
-    function(err) {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: this.lastID, nombre, descripcion });
+// ✅ Crear una nueva sesión
+const crearSesion = async (req, res) => {
+  try {
+    const { nombre, descripcion, orden = 0 } = req.body;
+    
+    console.log('📋 Creando sesión:', { nombre, descripcion, orden });
+    
+    if (!nombre || nombre.trim().length === 0) {
+      return res.status(400).json({ error: 'El nombre de la sesión es requerido' });
     }
-  );
-};
-
-const obtenerSesiones = (req, res) => {
-  console.log('📋 === OBTENIENDO SESIONES ===');
-  
-  db.all(
-    `SELECT 
-       s.id, s.nombre, s.descripcion, s.fecha_creacion, s.orden,
-       COALESCE(r.likes, 0) AS likes,
-       (SELECT COUNT(*) FROM archivos a WHERE a.sesion_id = s.id) AS archivo_count
-     FROM sesiones s
-     LEFT JOIN reacciones r ON r.sesion_id = s.id
-     ORDER BY s.orden ASC`,
-    [],
-    (err, rows) => {
-      if (err) {
-        console.error('❌ Error obteniendo sesiones:', err);
-        return res.status(500).json({ error: err.message });
-      }
-      
-      console.log(`📊 Sesiones encontradas: ${rows ? rows.length : 0}`);
-      
-      if (rows && rows.length > 0) {
-        console.log('📄 Muestra de sesiones:');
-        rows.forEach((row, i) => {
-          console.log(`   ${i+1}. ${row.nombre} (ID: ${row.id}) - ${row.archivo_count} archivos`);
-        });
-      } else {
-        console.log('⚠️ No se encontraron sesiones en la base de datos');
-        
-        // Verificar si existen sesiones sin JOIN
-        db.all('SELECT * FROM sesiones', [], (err2, allSessions) => {
-          if (!err2) {
-            console.log(`🔍 Total sesiones sin JOIN: ${allSessions ? allSessions.length : 0}`);
-            if (allSessions && allSessions.length > 0) {
-              console.log('📋 Sesiones básicas encontradas:');
-              allSessions.forEach(s => {
-                console.log(`   - ID: ${s.id}, Nombre: ${s.nombre}`);
-              });
-            }
-          }
-        });
-      }
-      
-      console.log('📤 Enviando respuesta...');
-      res.json(rows || []);
-      console.log('📋 === FIN OBTENIENDO SESIONES ===\n');
-    }
-  );
-};
-
-// Obtener una sesión específica con sus archivos
-const obtenerSesionPorId = (req, res) => {
-  const { id } = req.params;
-  
-  console.log('Obteniendo sesión con ID:', id); // Debug
-  
-  // Verificar que el ID sea válido
-  if (!id || isNaN(parseInt(id))) {
-    return res.status(400).json({ error: 'ID de sesión inválido' });
+    
+    // Insertar nueva sesión
+    const id = await insertAndGetId(
+      'INSERT INTO sesiones (nombre, descripcion, orden) VALUES ($1, $2, $3)',
+      [nombre.trim(), descripcion || '', orden]
+    );
+    
+    console.log('✅ Sesión creada con ID:', id);
+    
+    res.status(201).json({
+      id,
+      nombre: nombre.trim(),
+      descripcion: descripcion || '',
+      orden,
+      fecha_creacion: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('❌ Error al crear sesión:', error);
+    res.status(500).json({ error: 'Error al crear la sesión' });
   }
-  
-  // Obtener datos de la sesión
-  db.get(
-    `SELECT 
-       s.id, s.nombre, s.descripcion, s.fecha_creacion, s.orden,
-       COALESCE(r.likes, 0) AS likes
-     FROM sesiones s
-     LEFT JOIN reacciones r ON r.sesion_id = s.id
-     WHERE s.id = ?`,
-    [parseInt(id)],
-    (err, sesion) => {
-      if (err) {
-        console.error('Error obteniendo sesión:', err);
-        return res.status(500).json({ error: err.message });
-      }
-      
-      if (!sesion) {
-        console.log('Sesión no encontrada con ID:', id);
-        return res.status(404).json({ error: 'Sesión no encontrada' });
-      }
-      
-      console.log('Sesión encontrada:', sesion); // Debug
-      
-      // Obtener archivos de la sesión
-      db.all(
-        `SELECT 
-          id, 
-          COALESCE(nombre_archivo, nombre) as nombre_archivo, 
-          ruta, 
-          COALESCE(tipo_archivo, 
-            CASE 
-              WHEN categoria = 'visual' THEN 'image/jpeg'
-              WHEN categoria = 'audiovisual' THEN 'video/mp4'
-              ELSE 'application/octet-stream'
-            END
-          ) as tipo_archivo,
-          COALESCE(orden, 999) as orden, 
-          fecha_subida 
-         FROM archivos 
-         WHERE sesion_id = ? 
-         ORDER BY orden ASC, fecha_subida ASC`,
-        [parseInt(id)],
-        (err, archivos) => {
-          if (err) {
-            console.error('Error obteniendo archivos:', err);
-            return res.status(500).json({ error: err.message });
-          }
-          
-          console.log(`📁 Archivos encontrados para sesión ${id}:`, archivos ? archivos.length : 0);
-          
-          res.json({
-            ...sesion,
-            archivos: archivos || []
-          });
-        }
-      );
+};
+
+// ✅ Obtener todas las sesiones
+const obtenerSesiones = async (req, res) => {
+  try {
+    console.log('📋 Obteniendo todas las sesiones...');
+    
+    const sesiones = await queryMany(`
+      SELECT 
+        s.*,
+        COUNT(a.id) as total_archivos,
+        COALESCE(r.likes, 0) as likes
+      FROM sesiones s
+      LEFT JOIN archivos a ON s.id = a.sesion_id
+      LEFT JOIN reacciones r ON s.id = r.sesion_id
+      GROUP BY s.id, r.likes
+      ORDER BY s.orden ASC, s.fecha_creacion DESC
+    `);
+    
+    console.log(`✅ ${sesiones.length} sesiones encontradas`);
+    
+    res.json(sesiones);
+    
+  } catch (error) {
+    console.error('❌ Error al obtener sesiones:', error);
+    res.status(500).json({ error: 'Error al obtener las sesiones' });
+  }
+};
+
+// ✅ Obtener sesión por ID con sus archivos
+const obtenerSesionPorId = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    console.log('📋 Obteniendo sesión ID:', id);
+    
+    // Obtener sesión
+    const sesion = await queryOne('SELECT * FROM sesiones WHERE id = $1', [id]);
+    
+    if (!sesion) {
+      return res.status(404).json({ error: 'Sesión no encontrada' });
     }
-  );
+    
+    // Obtener archivos de la sesión
+    const archivos = await queryMany(
+      'SELECT * FROM archivos WHERE sesion_id = $1 ORDER BY orden ASC, fecha_subida ASC',
+      [id]
+    );
+    
+    // Obtener reacciones
+    const reacciones = await queryOne('SELECT * FROM reacciones WHERE sesion_id = $1', [id]);
+    
+    console.log(`✅ Sesión encontrada con ${archivos.length} archivos`);
+    
+    res.json({
+      ...sesion,
+      archivos,
+      likes: reacciones?.likes || 0
+    });
+    
+  } catch (error) {
+    console.error('❌ Error al obtener sesión:', error);
+    res.status(500).json({ error: 'Error al obtener la sesión' });
+  }
 };
 
-// Actualizar información de la sesión
-const actualizarSesion = (req, res) => {
-  const { id } = req.params;
-  const { nombre, descripcion } = req.body;
-  
-  db.run(
-    `UPDATE sesiones SET nombre = ?, descripcion = ? WHERE id = ?`,
-    [nombre, descripcion, id],
-    function(err) {
-      if (err) return res.status(500).json({ error: err.message });
-      if (this.changes === 0) return res.status(404).json({ error: 'Sesión no encontrada' });
-      res.json({ success: true, message: 'Sesión actualizada correctamente' });
+// ✅ Actualizar sesión
+const actualizarSesion = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, descripcion, orden } = req.body;
+    
+    console.log('📋 Actualizando sesión ID:', id, { nombre, descripcion, orden });
+    
+    // Verificar que la sesión existe
+    const sesionExistente = await queryOne('SELECT * FROM sesiones WHERE id = $1', [id]);
+    
+    if (!sesionExistente) {
+      return res.status(404).json({ error: 'Sesión no encontrada' });
     }
-  );
+    
+    // Actualizar sesión
+    await query(
+      'UPDATE sesiones SET nombre = $1, descripcion = $2, orden = $3 WHERE id = $4',
+      [nombre || sesionExistente.nombre, descripcion || sesionExistente.descripcion, orden || sesionExistente.orden, id]
+    );
+    
+    // Obtener sesión actualizada
+    const sesionActualizada = await queryOne('SELECT * FROM sesiones WHERE id = $1', [id]);
+    
+    console.log('✅ Sesión actualizada correctamente');
+    
+    res.json(sesionActualizada);
+    
+  } catch (error) {
+    console.error('❌ Error al actualizar sesión:', error);
+    res.status(500).json({ error: 'Error al actualizar la sesión' });
+  }
 };
 
-// Eliminar sesión completa
-const eliminarSesion = (req, res) => {
-  const { id } = req.params;
-  
-  // Primero obtener todos los archivos para eliminar físicamente
-  db.all(
-    `SELECT ruta FROM archivos WHERE sesion_id = ?`,
-    [id],
-    (err, archivos) => {
-      if (err) return res.status(500).json({ error: err.message });
-      
-      // Eliminar archivos físicos
-      archivos.forEach(archivo => {
-        const rutaCompleta = path.join(__dirname, '..', archivo.ruta);
-        if (fs.existsSync(rutaCompleta)) {
-          fs.unlinkSync(rutaCompleta);
-        }
-      });
-      
-      // Eliminar registros de la base de datos en el orden correcto
-      db.serialize(() => {
-        db.run(`DELETE FROM reacciones WHERE sesion_id = ?`, [id]);
-        db.run(`DELETE FROM archivos WHERE sesion_id = ?`, [id]);
-        db.run(`DELETE FROM sesiones WHERE id = ?`, [id], function(err) {
-          if (err) return res.status(500).json({ error: err.message });
-          if (this.changes === 0) return res.status(404).json({ error: 'Sesión no encontrada' });
-          res.json({ success: true, message: 'Sesión eliminada correctamente' });
-        });
-      });
+// ✅ Eliminar sesión
+const eliminarSesion = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    console.log('📋 Eliminando sesión ID:', id);
+    
+    // Verificar que la sesión existe
+    const sesion = await queryOne('SELECT * FROM sesiones WHERE id = $1', [id]);
+    
+    if (!sesion) {
+      return res.status(404).json({ error: 'Sesión no encontrada' });
     }
-  );
+    
+    // PostgreSQL manejará la eliminación en cascada automáticamente
+    // gracias a las foreign keys definidas en el schema
+    await query('DELETE FROM sesiones WHERE id = $1', [id]);
+    
+    console.log('✅ Sesión eliminada correctamente');
+    
+    res.json({ message: 'Sesión eliminada correctamente', id });
+    
+  } catch (error) {
+    console.error('❌ Error al eliminar sesión:', error);
+    res.status(500).json({ error: 'Error al eliminar la sesión' });
+  }
 };
 
-const reordenarSesiones = (req, res) => {
-  const { orden } = req.body; // ej. [3,1,2]
-  const stmt = db.prepare(`UPDATE sesiones SET orden = ? WHERE id = ?`);
-  orden.forEach((id, idx) => stmt.run(idx, id));
-  stmt.finalize(err => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ success: true });
-  });
-};
-
-// Reordenar archivos dentro de una sesión
-const reordenarArchivos = (req, res) => {
-  const { id } = req.params; // sesion_id
-  const { orden } = req.body; // array de archivo_ids en nuevo orden
-  
-  console.log(`Reordenando archivos para sesión ${id}:`, orden);
-  
-  const stmt = db.prepare(`UPDATE archivos SET orden = ? WHERE id = ? AND sesion_id = ?`);
-  orden.forEach((archivoId, idx) => {
-    stmt.run(idx, archivoId, id);
-  });
-  
-  stmt.finalize(err => {
-    if (err) {
-      console.error('Error reordenando archivos:', err);
-      return res.status(500).json({ error: err.message });
+// ✅ Reordenar sesiones
+const reordenarSesiones = async (req, res) => {
+  try {
+    const { sesiones } = req.body; // Array de { id, orden }
+    
+    console.log('📋 Reordenando sesiones:', sesiones);
+    
+    if (!Array.isArray(sesiones)) {
+      return res.status(400).json({ error: 'Se esperaba un array de sesiones' });
     }
-    console.log('Archivos reordenados correctamente');
-    res.json({ success: true, message: 'Orden de archivos actualizado' });
-  });
-};
-
-// Eliminar archivo individual
-const eliminarArchivo = (req, res) => {
-  const { archivoId } = req.params;
-  
-  // Obtener información del archivo antes de eliminarlo
-  db.get(
-    `SELECT ruta FROM archivos WHERE id = ?`,
-    [archivoId],
-    (err, archivo) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (!archivo) return res.status(404).json({ error: 'Archivo no encontrado' });
-      
-      // Eliminar archivo físico
-      const rutaCompleta = path.join(__dirname, '..', archivo.ruta);
-      if (fs.existsSync(rutaCompleta)) {
-        fs.unlinkSync(rutaCompleta);
-      }
-      
-      // Eliminar registro de la base de datos
-      db.run(
-        `DELETE FROM archivos WHERE id = ?`,
-        [archivoId],
-        function(err) {
-          if (err) return res.status(500).json({ error: err.message });
-          res.json({ success: true, message: 'Archivo eliminado correctamente' });
-        }
-      );
+    
+    // Actualizar orden de cada sesión
+    for (const { id, orden } of sesiones) {
+      await query('UPDATE sesiones SET orden = $1 WHERE id = $2', [orden, id]);
     }
-  );
+    
+    console.log('✅ Sesiones reordenadas correctamente');
+    
+    res.json({ message: 'Sesiones reordenadas correctamente' });
+    
+  } catch (error) {
+    console.error('❌ Error al reordenar sesiones:', error);
+    res.status(500).json({ error: 'Error al reordenar las sesiones' });
+  }
 };
 
-module.exports = { 
-  crearSesion, 
-  obtenerSesiones, 
+// ✅ Reordenar archivos dentro de una sesión
+const reordenarArchivos = async (req, res) => {
+  try {
+    const { id } = req.params; // sesion_id
+    const { archivos } = req.body; // Array de { id, orden }
+    
+    console.log('📋 Reordenando archivos de sesión ID:', id, archivos);
+    
+    if (!Array.isArray(archivos)) {
+      return res.status(400).json({ error: 'Se esperaba un array de archivos' });
+    }
+    
+    // Actualizar orden de cada archivo
+    for (const { id: archivoId, orden } of archivos) {
+      await query('UPDATE archivos SET orden = $1 WHERE id = $2 AND sesion_id = $3', [orden, archivoId, id]);
+    }
+    
+    console.log('✅ Archivos reordenados correctamente');
+    
+    res.json({ message: 'Archivos reordenados correctamente' });
+    
+  } catch (error) {
+    console.error('❌ Error al reordenar archivos:', error);
+    res.status(500).json({ error: 'Error al reordenar los archivos' });
+  }
+};
+
+// ✅ Eliminar archivo específico
+const eliminarArchivo = async (req, res) => {
+  try {
+    const { archivoId } = req.params;
+    
+    console.log('📋 Eliminando archivo ID:', archivoId);
+    
+    // Obtener información del archivo antes de eliminarlo
+    const archivo = await queryOne('SELECT * FROM archivos WHERE id = $1', [archivoId]);
+    
+    if (!archivo) {
+      return res.status(404).json({ error: 'Archivo no encontrado' });
+    }
+    
+    // Eliminar archivo de la base de datos
+    await query('DELETE FROM archivos WHERE id = $1', [archivoId]);
+    
+    // TODO: También eliminar el archivo físico del servidor
+    // const fs = require('fs');
+    // if (fs.existsSync(archivo.ruta)) {
+    //   fs.unlinkSync(archivo.ruta);
+    // }
+    
+    console.log('✅ Archivo eliminado correctamente');
+    
+    res.json({ message: 'Archivo eliminado correctamente', archivo });
+    
+  } catch (error) {
+    console.error('❌ Error al eliminar archivo:', error);
+    res.status(500).json({ error: 'Error al eliminar el archivo' });
+  }
+};
+
+module.exports = {
+  crearSesion,
+  obtenerSesiones,
   obtenerSesionPorId,
   actualizarSesion,
   eliminarSesion,

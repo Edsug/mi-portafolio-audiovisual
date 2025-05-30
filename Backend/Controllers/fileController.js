@@ -1,191 +1,263 @@
-// controllers/fileController.js - Con debugging completo
-const db = require('../models/db');
-const path = require('path');
-const fs = require('fs');
+// Controllers/sesionesController.js - Convertido a PostgreSQL
+const { 
+  queryMany, 
+  queryOne, 
+  insertAndGetId, 
+  query 
+} = require('../database');
 
-const subirArchivo = (req, res) => {
-  console.log('🔥 === INICIO SUBIDA DE ARCHIVO ===');
-  console.log('📋 Datos recibidos:');
-  console.log('   - Body:', req.body);
-  console.log('   - File:', req.file ? 'SÍ' : 'NO');
-  
-  if (!req.file) {
-    console.log('❌ No se recibió archivo');
-    return res.status(400).json({ error: 'No se envió ningún archivo' });
-  }
-
-  console.log('📁 Información del archivo:');
-  console.log('   - Nombre original:', req.file.originalname);
-  console.log('   - Ruta temporal:', req.file.path);
-  console.log('   - Tamaño:', req.file.size);
-  console.log('   - Tipo MIME:', req.file.mimetype);
-
-  const nombre_archivo = req.file.originalname;
-  const sesionId = parseInt(req.body.sesion_id, 10);
-  
-  console.log('🎯 Parámetros procesados:');
-  console.log('   - Nombre archivo:', nombre_archivo);
-  console.log('   - ID sesión:', sesionId);
-
-  if (isNaN(sesionId)) {
-    console.log('❌ ID de sesión inválido');
-    // Limpiar archivo temporal
-    if (fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
-    return res.status(400).json({ error: 'ID de sesión inválido' });
-  }
-
-  // Verificar que el archivo temporal existe
-  if (!fs.existsSync(req.file.path)) {
-    console.log('❌ Archivo temporal no existe:', req.file.path);
-    return res.status(500).json({ error: 'Error procesando archivo' });
-  }
-
-  // Normalizar la ruta (convertir a ruta relativa)
-  let ruta = req.file.path.replace(/\\/g, '/'); // Convertir backslashes
-  
-  // Convertir ruta absoluta a relativa desde la carpeta uploads
-  if (ruta.includes('/uploads/')) {
-    ruta = 'uploads/' + ruta.split('/uploads/')[1];
-  } else if (ruta.includes('\\uploads\\')) {
-    ruta = 'uploads/' + ruta.split('\\uploads\\')[1];
-  }
-  
-  console.log('📂 Ruta normalizada:', ruta);
-
-  // Detectar tipo de archivo
-  const ext = path.extname(nombre_archivo).toLowerCase();
-  let tipo_archivo = req.file.mimetype || 'application/octet-stream';
-  
-  console.log('🔍 Detección de tipo:');
-  console.log('   - Extensión:', ext);
-  console.log('   - MIME type original:', req.file.mimetype);
-
-  // Asegurar tipos correctos
-  if (['.jpg','.jpeg','.png','.gif','.webp'].includes(ext)) {
-    if (!tipo_archivo.startsWith('image/')) {
-      tipo_archivo = `image/${ext.substring(1) === 'jpg' ? 'jpeg' : ext.substring(1)}`;
-    }
-  } else if (['.mp4','.webm','.ogg','.mov','.avi'].includes(ext)) {
-    if (!tipo_archivo.startsWith('video/')) {
-      tipo_archivo = `video/${ext.substring(1)}`;
-    }
-  }
-
-  console.log('   - Tipo final:', tipo_archivo);
-
-  // Obtener el siguiente orden para esta sesión
-  console.log('🔢 Obteniendo orden para la sesión...');
-  db.get(
-    `SELECT COALESCE(MAX(orden), -1) + 1 as next_orden FROM archivos WHERE sesion_id = ?`,
-    [sesionId],
-    (err, row) => {
-      if (err) {
-        console.error('❌ Error obteniendo orden:', err);
-        // Limpiar archivo temporal
-        if (fs.existsSync(req.file.path)) {
-          fs.unlinkSync(req.file.path);
-        }
-        return res.status(500).json({ error: err.message });
-      }
-      
-      const orden = row ? row.next_orden : 0;
-      console.log('📊 Orden asignado:', orden);
-      
-      // Insertar archivo en la base de datos
-      console.log('💾 Insertando en base de datos...');
-      db.run(
-        `INSERT INTO archivos (
-          nombre, nombre_archivo, ruta, tipo_archivo, sesion_id, orden
-        ) VALUES (?, ?, ?, ?, ?, ?)`,
-        [nombre_archivo, nombre_archivo, ruta, tipo_archivo, sesionId, orden],
-        function(err) {
-          if (err) {
-            console.error('❌ Error insertando en BD:', err);
-            // Limpiar archivo temporal en caso de error
-            if (fs.existsSync(req.file.path)) {
-              fs.unlinkSync(req.file.path);
-            }
-            return res.status(500).json({ error: err.message });
-          }
-          
-          console.log('✅ Archivo guardado correctamente:');
-          console.log('   - ID asignado:', this.lastID);
-          console.log('   - Ruta física:', req.file.path);
-          console.log('   - Ruta en BD:', ruta);
-          
-          // Verificar que el archivo físico realmente existe
-          const fileExists = fs.existsSync(req.file.path);
-          console.log('📁 ¿Archivo físico existe?', fileExists ? '✅ SÍ' : '❌ NO');
-          
-          if (fileExists) {
-            const stats = fs.statSync(req.file.path);
-            console.log('📊 Tamaño del archivo:', stats.size, 'bytes');
-          }
-          
-          const response = { 
-            id: this.lastID, 
-            nombre_archivo,
-            ruta, 
-            tipo_archivo,
-            sesion_id: sesionId,
-            orden,
-            duplicated: false,
-            debug: {
-              file_exists: fileExists,
-              file_path: req.file.path,
-              file_size: req.file.size
-            }
-          };
-          
-          console.log('📤 Respuesta enviada:', response);
-          console.log('🔥 === FIN SUBIDA DE ARCHIVO ===\n');
-          
-          res.json(response);
-        }
-      );
-    }
-  );
-};
-
-const obtenerArchivos = (req, res) => {
-  const { sesion_id } = req.query;
-  
-  console.log('📋 Obteniendo archivos para sesión:', sesion_id || 'TODAS');
-  
-  const sql = sesion_id
-    ? `SELECT 
-        id, nombre_archivo, ruta, tipo_archivo, 
-        sesion_id, orden, fecha_subida
-       FROM archivos 
-       WHERE sesion_id = ? 
-       ORDER BY COALESCE(orden, 999), fecha_subida ASC`
-    : `SELECT 
-        id, nombre_archivo, ruta, tipo_archivo, 
-        sesion_id, orden, fecha_subida
-       FROM archivos 
-       ORDER BY sesion_id, COALESCE(orden, 999), fecha_subida ASC`;
-  
-  const params = sesion_id ? [sesion_id] : [];
-
-  db.all(sql, params, (err, rows) => {
-    if (err) {
-      console.error('❌ Error obteniendo archivos:', err);
-      return res.status(500).json({ error: err.message });
+// ✅ Crear una nueva sesión
+const crearSesion = async (req, res) => {
+  try {
+    const { nombre, descripcion, orden = 0 } = req.body;
+    
+    console.log('📋 Creando sesión:', { nombre, descripcion, orden });
+    
+    if (!nombre || nombre.trim().length === 0) {
+      return res.status(400).json({ error: 'El nombre de la sesión es requerido' });
     }
     
-    console.log(`📁 Archivos encontrados: ${rows.length}`);
-    if (rows.length > 0) {
-      console.log('📄 Muestra de archivos:');
-      rows.slice(0, 3).forEach((row, i) => {
-        const fileExists = fs.existsSync(row.ruta);
-        console.log(`   ${i+1}. ${row.nombre_archivo} -> ${row.ruta} (${fileExists ? '✅' : '❌'})`);
-      });
-    }
+    // Insertar nueva sesión
+    const id = await insertAndGetId(
+      'INSERT INTO sesiones (nombre, descripcion, orden) VALUES ($1, $2, $3)',
+      [nombre.trim(), descripcion || '', orden]
+    );
     
-    res.json(rows);
-  });
+    console.log('✅ Sesión creada con ID:', id);
+    
+    res.status(201).json({
+      id,
+      nombre: nombre.trim(),
+      descripcion: descripcion || '',
+      orden,
+      fecha_creacion: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('❌ Error al crear sesión:', error);
+    res.status(500).json({ error: 'Error al crear la sesión' });
+  }
 };
 
-module.exports = { subirArchivo, obtenerArchivos };
+// ✅ Obtener todas las sesiones
+const obtenerSesiones = async (req, res) => {
+  try {
+    console.log('📋 Obteniendo todas las sesiones...');
+    
+    const sesiones = await queryMany(`
+      SELECT 
+        s.*,
+        COUNT(a.id) as total_archivos,
+        COALESCE(r.likes, 0) as likes
+      FROM sesiones s
+      LEFT JOIN archivos a ON s.id = a.sesion_id
+      LEFT JOIN reacciones r ON s.id = r.sesion_id
+      GROUP BY s.id, r.likes
+      ORDER BY s.orden ASC, s.fecha_creacion DESC
+    `);
+    
+    console.log(`✅ ${sesiones.length} sesiones encontradas`);
+    
+    res.json(sesiones);
+    
+  } catch (error) {
+    console.error('❌ Error al obtener sesiones:', error);
+    res.status(500).json({ error: 'Error al obtener las sesiones' });
+  }
+};
+
+// ✅ Obtener sesión por ID con sus archivos
+const obtenerSesionPorId = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    console.log('📋 Obteniendo sesión ID:', id);
+    
+    // Obtener sesión
+    const sesion = await queryOne('SELECT * FROM sesiones WHERE id = $1', [id]);
+    
+    if (!sesion) {
+      return res.status(404).json({ error: 'Sesión no encontrada' });
+    }
+    
+    // Obtener archivos de la sesión
+    const archivos = await queryMany(
+      'SELECT * FROM archivos WHERE sesion_id = $1 ORDER BY orden ASC, fecha_subida ASC',
+      [id]
+    );
+    
+    // Obtener reacciones
+    const reacciones = await queryOne('SELECT * FROM reacciones WHERE sesion_id = $1', [id]);
+    
+    console.log(`✅ Sesión encontrada con ${archivos.length} archivos`);
+    
+    res.json({
+      ...sesion,
+      archivos,
+      likes: reacciones?.likes || 0
+    });
+    
+  } catch (error) {
+    console.error('❌ Error al obtener sesión:', error);
+    res.status(500).json({ error: 'Error al obtener la sesión' });
+  }
+};
+
+// ✅ Actualizar sesión
+const actualizarSesion = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, descripcion, orden } = req.body;
+    
+    console.log('📋 Actualizando sesión ID:', id, { nombre, descripcion, orden });
+    
+    // Verificar que la sesión existe
+    const sesionExistente = await queryOne('SELECT * FROM sesiones WHERE id = $1', [id]);
+    
+    if (!sesionExistente) {
+      return res.status(404).json({ error: 'Sesión no encontrada' });
+    }
+    
+    // Actualizar sesión
+    await query(
+      'UPDATE sesiones SET nombre = $1, descripcion = $2, orden = $3 WHERE id = $4',
+      [nombre || sesionExistente.nombre, descripcion || sesionExistente.descripcion, orden || sesionExistente.orden, id]
+    );
+    
+    // Obtener sesión actualizada
+    const sesionActualizada = await queryOne('SELECT * FROM sesiones WHERE id = $1', [id]);
+    
+    console.log('✅ Sesión actualizada correctamente');
+    
+    res.json(sesionActualizada);
+    
+  } catch (error) {
+    console.error('❌ Error al actualizar sesión:', error);
+    res.status(500).json({ error: 'Error al actualizar la sesión' });
+  }
+};
+
+// ✅ Eliminar sesión
+const eliminarSesion = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    console.log('📋 Eliminando sesión ID:', id);
+    
+    // Verificar que la sesión existe
+    const sesion = await queryOne('SELECT * FROM sesiones WHERE id = $1', [id]);
+    
+    if (!sesion) {
+      return res.status(404).json({ error: 'Sesión no encontrada' });
+    }
+    
+    // PostgreSQL manejará la eliminación en cascada automáticamente
+    // gracias a las foreign keys definidas en el schema
+    await query('DELETE FROM sesiones WHERE id = $1', [id]);
+    
+    console.log('✅ Sesión eliminada correctamente');
+    
+    res.json({ message: 'Sesión eliminada correctamente', id });
+    
+  } catch (error) {
+    console.error('❌ Error al eliminar sesión:', error);
+    res.status(500).json({ error: 'Error al eliminar la sesión' });
+  }
+};
+
+// ✅ Reordenar sesiones
+const reordenarSesiones = async (req, res) => {
+  try {
+    const { sesiones } = req.body; // Array de { id, orden }
+    
+    console.log('📋 Reordenando sesiones:', sesiones);
+    
+    if (!Array.isArray(sesiones)) {
+      return res.status(400).json({ error: 'Se esperaba un array de sesiones' });
+    }
+    
+    // Actualizar orden de cada sesión
+    for (const { id, orden } of sesiones) {
+      await query('UPDATE sesiones SET orden = $1 WHERE id = $2', [orden, id]);
+    }
+    
+    console.log('✅ Sesiones reordenadas correctamente');
+    
+    res.json({ message: 'Sesiones reordenadas correctamente' });
+    
+  } catch (error) {
+    console.error('❌ Error al reordenar sesiones:', error);
+    res.status(500).json({ error: 'Error al reordenar las sesiones' });
+  }
+};
+
+// ✅ Reordenar archivos dentro de una sesión
+const reordenarArchivos = async (req, res) => {
+  try {
+    const { id } = req.params; // sesion_id
+    const { archivos } = req.body; // Array de { id, orden }
+    
+    console.log('📋 Reordenando archivos de sesión ID:', id, archivos);
+    
+    if (!Array.isArray(archivos)) {
+      return res.status(400).json({ error: 'Se esperaba un array de archivos' });
+    }
+    
+    // Actualizar orden de cada archivo
+    for (const { id: archivoId, orden } of archivos) {
+      await query('UPDATE archivos SET orden = $1 WHERE id = $2 AND sesion_id = $3', [orden, archivoId, id]);
+    }
+    
+    console.log('✅ Archivos reordenados correctamente');
+    
+    res.json({ message: 'Archivos reordenados correctamente' });
+    
+  } catch (error) {
+    console.error('❌ Error al reordenar archivos:', error);
+    res.status(500).json({ error: 'Error al reordenar los archivos' });
+  }
+};
+
+// ✅ Eliminar archivo específico
+const eliminarArchivo = async (req, res) => {
+  try {
+    const { archivoId } = req.params;
+    
+    console.log('📋 Eliminando archivo ID:', archivoId);
+    
+    // Obtener información del archivo antes de eliminarlo
+    const archivo = await queryOne('SELECT * FROM archivos WHERE id = $1', [archivoId]);
+    
+    if (!archivo) {
+      return res.status(404).json({ error: 'Archivo no encontrado' });
+    }
+    
+    // Eliminar archivo de la base de datos
+    await query('DELETE FROM archivos WHERE id = $1', [archivoId]);
+    
+    // TODO: También eliminar el archivo físico del servidor
+    // const fs = require('fs');
+    // if (fs.existsSync(archivo.ruta)) {
+    //   fs.unlinkSync(archivo.ruta);
+    // }
+    
+    console.log('✅ Archivo eliminado correctamente');
+    
+    res.json({ message: 'Archivo eliminado correctamente', archivo });
+    
+  } catch (error) {
+    console.error('❌ Error al eliminar archivo:', error);
+    res.status(500).json({ error: 'Error al eliminar el archivo' });
+  }
+};
+
+module.exports = {
+  crearSesion,
+  obtenerSesiones,
+  obtenerSesionPorId,
+  actualizarSesion,
+  eliminarSesion,
+  reordenarSesiones,
+  reordenarArchivos,
+  eliminarArchivo
+};

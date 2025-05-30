@@ -1,17 +1,20 @@
-// server.js - Con debugging para subida de archivos
-const express = require('express');
-const cors    = require('cors');
-const path    = require('path');
-const fs      = require('fs');
+// server.js - DEBUG: Cargar rutas una por una
+require('dotenv').config();
 
-// Rutas
-const sesionesRoutes   = require('./routes/sesionesRoutes');
-const fileRoutes       = require('./routes/fileRoutes');
-const reaccionesRoutes = require('./routes/reaccionesRoutes');
-const usuariosRoutes   = require('./routes/usuariosRoutes');
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
+
+// Variables de entorno para debugging
+console.log('🔧 Configuración del servidor:');
+console.log('   NODE_ENV:', process.env.NODE_ENV || 'development');
+console.log('   PORT:', PORT);
+console.log('   DATABASE_URL definida:', !!process.env.DATABASE_URL);
+console.log('   FRONTEND_URL:', process.env.FRONTEND_URL || 'No definida');
 
 // Verificar y crear carpeta uploads si no existe
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -22,46 +25,90 @@ if (!fs.existsSync(uploadsDir)) {
   console.log('📁 Carpeta uploads encontrada:', uploadsDir);
 }
 
-// Middleware
+// Middleware básico
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Middleware de logging para debugging
-app.use((req, res, next) => {
-  if (req.url.includes('/api/files/subir')) {
-    console.log(`📤 ${req.method} ${req.url}`);
-    console.log('📋 Headers:', req.headers);
-  }
-  next();
+// Health check
+app.get('/', (req, res) => {
+  res.json({ status: 'OK', message: 'Servidor funcionando' });
 });
 
-// IMPORTANTE: Servir archivos estáticos ANTES de las rutas de API
-app.use('/uploads', express.static(uploadsDir, {
-  setHeaders: (res, filePath) => {
-    console.log('📁 Sirviendo archivo:', filePath);
-  }
-}));
+// Servir archivos estáticos
+app.use('/uploads', express.static(uploadsDir));
 
-// Rutas de la API
-app.use('/api/sesiones', sesionesRoutes);
-app.use('/api/files', fileRoutes);
-app.use('/api', reaccionesRoutes);
-app.use('/api/usuarios', usuariosRoutes);
+// ===== CARGAR RUTAS UNA POR UNA PARA DEBUGGING =====
+console.log('\n🔗 Cargando rutas paso a paso...');
 
-// Middleware de manejo de errores
-app.use((err, req, res, next) => {
-  console.error('❌ Error del servidor:', err);
-  res.status(500).json({ error: 'Error interno del servidor' });
+try {
+  // RUTA 1: Usuarios
+  console.log('1️⃣ Cargando usuariosRoutes...');
+  const usuariosRoutes = require('./routes/usuariosRoutes');
+  app.use('/api/usuarios', usuariosRoutes);
+  console.log('✅ usuariosRoutes cargado correctamente');
+
+} catch (error) {
+  console.error('❌ ERROR en usuariosRoutes:', error.message);
+  console.error('   Stack:', error.stack);
+  process.exit(1);
+}
+
+try {
+  // RUTA 2: Sesiones
+  console.log('2️⃣ Cargando sesionesRoutes...');
+  const sesionesRoutes = require('./routes/sesionesRoutes');
+  app.use('/api/sesiones', sesionesRoutes);
+  console.log('✅ sesionesRoutes cargado correctamente');
+
+} catch (error) {
+  console.error('❌ ERROR en sesionesRoutes:', error.message);
+  console.error('   Stack:', error.stack);
+  process.exit(1);
+}
+
+try {
+  // RUTA 3: Files
+  console.log('3️⃣ Cargando fileRoutes...');
+  const fileRoutes = require('./routes/fileRoutes');
+  app.use('/api/files', fileRoutes);
+  console.log('✅ fileRoutes cargado correctamente');
+
+} catch (error) {
+  console.error('❌ ERROR en fileRoutes:', error.message);
+  console.error('   Stack:', error.stack);
+  process.exit(1);
+}
+
+try {
+  // RUTA 4: Reacciones
+  console.log('4️⃣ Cargando reaccionesRoutes...');
+  const reaccionesRoutes = require('./routes/reaccionesRoutes');
+  app.use('/api', reaccionesRoutes);
+  console.log('✅ reaccionesRoutes cargado correctamente');
+
+} catch (error) {
+  console.error('❌ ERROR en reaccionesRoutes:', error.message);
+  console.error('   Stack:', error.stack);
+  process.exit(1);
+}
+
+console.log('✅ Todas las rutas cargadas exitosamente');
+
+// Middleware para rutas no encontradas
+app.use('*', (req, res) => {
+  res.status(404).json({ error: 'Ruta no encontrada' });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
-  console.log(`📁 Archivos servidos desde: ${uploadsDir}`);
-  console.log(`🔗 Endpoint de subida: http://localhost:${PORT}/api/files/subir`);
-  
-  // Verificar que las rutas importantes existan
-  console.log('🔍 Verificando rutas...');
-  console.log('   /api/files/subir - Subida de archivos');
-  console.log('   /api/sesiones - Gestión de álbumes');
-  console.log('   /uploads - Archivos estáticos');
+// Iniciar servidor SIN base de datos por ahora
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n✅ Servidor iniciado exitosamente en puerto ${PORT}`);
+  console.log(`🌐 URL: http://localhost:${PORT}`);
+  console.log(`\n🎯 Si llegas aquí, el problema NO son las rutas`);
+  console.log(`🔄 Si no llegas aquí, el error te dirá exactamente qué ruta falla\n`);
+});
+
+// Manejo de cierre limpio
+process.on('SIGTERM', () => {
+  server.close(() => process.exit(0));
 });

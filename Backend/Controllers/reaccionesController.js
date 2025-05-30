@@ -1,162 +1,143 @@
-// controllers/reaccionesController.js
-const db = require('../models/db');
+// Controllers/reaccionesController.js - Convertido a PostgreSQL
+const { queryMany, queryOne, query } = require('../database');
 
-const obtenerReacciones = (req, res) => {
-  console.log('💖 === OBTENIENDO REACCIONES ===');
-  
-  db.all(`SELECT sesion_id, likes FROM reacciones`, [], (err, rows) => {
-    if (err) {
-      console.error('❌ Error obteniendo reacciones:', err);
-      return res.status(500).json({ error: err.message });
-    }
+// ✅ Obtener todas las reacciones
+const obtenerReacciones = async (req, res) => {
+  try {
+    console.log('💖 Obteniendo todas las reacciones...');
     
-    console.log(`📊 Reacciones encontradas: ${rows ? rows.length : 0}`);
+    const reacciones = await queryMany(`
+      SELECT 
+        r.*,
+        s.nombre as sesion_nombre
+      FROM reacciones r
+      LEFT JOIN sesiones s ON r.sesion_id = s.id
+      ORDER BY r.likes DESC, r.fecha_actualizacion DESC
+    `);
     
-    if (rows && rows.length > 0) {
-      console.log('💖 Muestra de reacciones:');
-      rows.forEach((row, i) => {
-        console.log(`   ${i+1}. Sesión ID: ${row.sesion_id} - ${row.likes} likes`);
-      });
-    } else {
-      console.log('⚠️ No se encontraron reacciones en la base de datos');
-    }
+    console.log(`✅ ${reacciones.length} reacciones encontradas`);
     
-    console.log('📤 Enviando respuesta de reacciones...');
-    res.json(rows || []);
-    console.log('💖 === FIN OBTENIENDO REACCIONES ===\n');
-  });
+    res.json(reacciones);
+    
+  } catch (error) {
+    console.error('❌ Error al obtener reacciones:', error);
+    res.status(500).json({ error: 'Error al obtener las reacciones' });
+  }
 };
 
-const darLike = (req, res) => {
-  const sesionId = req.params.sesion_id;
-  
-  console.log(`💖 === DANDO LIKE ===`);
-  console.log(`📋 Sesión ID recibido: ${sesionId}`);
-  
-  // Validar que el sesionId sea un número válido
-  const sesionIdNum = parseInt(sesionId, 10);
-  if (isNaN(sesionIdNum)) {
-    console.log(`❌ ID de sesión inválido: ${sesionId}`);
-    return res.status(400).json({ error: 'ID de sesión inválido' });
-  }
-  
-  console.log(`📋 Sesión ID convertido: ${sesionIdNum}`);
-  
-  // Verificar que la sesión exista antes de agregar like
-  db.get(`SELECT id FROM sesiones WHERE id = ?`, [sesionIdNum], (err, sesion) => {
-    if (err) {
-      console.error('❌ Error verificando sesión:', err);
-      return res.status(500).json({ error: err.message });
-    }
+// ✅ Dar like a una sesión
+const darLike = async (req, res) => {
+  try {
+    const { sesion_id } = req.params;
+    
+    console.log('💖 Dando like a sesión ID:', sesion_id);
+    
+    // Verificar que la sesión existe
+    const sesion = await queryOne('SELECT * FROM sesiones WHERE id = $1', [sesion_id]);
     
     if (!sesion) {
-      console.log(`❌ Sesión no encontrada: ${sesionIdNum}`);
       return res.status(404).json({ error: 'Sesión no encontrada' });
     }
     
-    console.log(`✅ Sesión encontrada: ${sesionIdNum}`);
+    // Usar UPSERT para insertar o actualizar
+    await query(`
+      INSERT INTO reacciones (sesion_id, likes) 
+      VALUES ($1, 1)
+      ON CONFLICT (sesion_id) 
+      DO UPDATE SET 
+        likes = reacciones.likes + 1,
+        fecha_actualizacion = NOW()
+    `, [sesion_id]);
     
-    // Usar INSERT OR REPLACE o UPSERT para SQLite
-    db.run(`
-      INSERT INTO reacciones (sesion_id, likes)
-        VALUES (?, 1)
-      ON CONFLICT(sesion_id) DO
-        UPDATE SET likes = likes + 1
-    `, [sesionIdNum], function(err) {
-      if (err) {
-        console.error('❌ Error al insertar/actualizar like:', err);
-        return res.status(500).json({ error: err.message });
-      }
-      
-      console.log(`✅ Like agregado correctamente para sesión ${sesionIdNum}`);
-      console.log(`📊 Cambios realizados: ${this.changes}`);
-      
-      // Obtener el nuevo contador de likes
-      db.get(`SELECT likes FROM reacciones WHERE sesion_id = ?`, [sesionIdNum], (err, result) => {
-        if (err) {
-          console.error('❌ Error obteniendo nuevo contador:', err);
-          return res.status(500).json({ error: err.message });
-        }
-        
-        const newLikeCount = result ? result.likes : 1;
-        console.log(`💖 Nuevo contador de likes: ${newLikeCount}`);
-        
-        res.json({ 
-          success: true, 
-          sesion_id: sesionIdNum,
-          likes: newLikeCount,
-          message: 'Like agregado correctamente'
-        });
-        
-        console.log('💖 === FIN DANDO LIKE ===\n');
-      });
-    });
-  });
-};
-
-// Nueva función para obtener likes de una sesión específica
-const obtenerLikesPorSesion = (req, res) => {
-  const sesionId = req.params.sesion_id;
-  const sesionIdNum = parseInt(sesionId, 10);
-  
-  if (isNaN(sesionIdNum)) {
-    return res.status(400).json({ error: 'ID de sesión inválido' });
-  }
-  
-  console.log(`💖 Obteniendo likes para sesión: ${sesionIdNum}`);
-  
-  db.get(`
-    SELECT r.likes, s.nombre as sesion_nombre
-    FROM reacciones r
-    LEFT JOIN sesiones s ON s.id = r.sesion_id
-    WHERE r.sesion_id = ?
-  `, [sesionIdNum], (err, row) => {
-    if (err) {
-      console.error('❌ Error obteniendo likes por sesión:', err);
-      return res.status(500).json({ error: err.message });
-    }
+    // Obtener el resultado actualizado
+    const reaccionActualizada = await queryOne(
+      'SELECT * FROM reacciones WHERE sesion_id = $1', 
+      [sesion_id]
+    );
     
-    const likes = row ? row.likes : 0;
-    const sesionNombre = row ? row.sesion_nombre : 'Desconocida';
-    
-    console.log(`💖 Likes para "${sesionNombre}": ${likes}`);
+    console.log('✅ Like agregado. Total likes:', reaccionActualizada.likes);
     
     res.json({
-      sesion_id: sesionIdNum,
-      sesion_nombre: sesionNombre,
-      likes: likes
+      sesion_id: parseInt(sesion_id),
+      likes: reaccionActualizada.likes,
+      mensaje: 'Like agregado exitosamente'
     });
-  });
+    
+  } catch (error) {
+    console.error('❌ Error al dar like:', error);
+    res.status(500).json({ error: 'Error al dar like' });
+  }
 };
 
-// Función para resetear likes (útil para administración)
-const resetearLikes = (req, res) => {
-  const sesionId = req.params.sesion_id;
-  const sesionIdNum = parseInt(sesionId, 10);
-  
-  if (isNaN(sesionIdNum)) {
-    return res.status(400).json({ error: 'ID de sesión inválido' });
+// ✅ Obtener likes de una sesión específica
+const obtenerLikesPorSesion = async (req, res) => {
+  try {
+    const { sesion_id } = req.params;
+    
+    console.log('💖 Obteniendo likes de sesión ID:', sesion_id);
+    
+    const reaccion = await queryOne(
+      'SELECT * FROM reacciones WHERE sesion_id = $1', 
+      [sesion_id]
+    );
+    
+    const likes = reaccion ? reaccion.likes : 0;
+    
+    console.log(`✅ Sesión tiene ${likes} likes`);
+    
+    res.json({
+      sesion_id: parseInt(sesion_id),
+      likes,
+      fecha_creacion: reaccion?.fecha_creacion || null,
+      fecha_actualizacion: reaccion?.fecha_actualizacion || null
+    });
+    
+  } catch (error) {
+    console.error('❌ Error al obtener likes:', error);
+    res.status(500).json({ error: 'Error al obtener los likes' });
   }
-  
-  console.log(`🔄 Reseteando likes para sesión: ${sesionIdNum}`);
-  
-  db.run(`DELETE FROM reacciones WHERE sesion_id = ?`, [sesionIdNum], function(err) {
-    if (err) {
-      console.error('❌ Error reseteando likes:', err);
-      return res.status(500).json({ error: err.message });
+};
+
+// ✅ Resetear likes de una sesión (para administración)
+const resetearLikes = async (req, res) => {
+  try {
+    const { sesion_id } = req.params;
+    
+    console.log('💖 Reseteando likes de sesión ID:', sesion_id);
+    
+    // Verificar que la sesión existe
+    const sesion = await queryOne('SELECT * FROM sesiones WHERE id = $1', [sesion_id]);
+    
+    if (!sesion) {
+      return res.status(404).json({ error: 'Sesión no encontrada' });
     }
     
-    console.log(`✅ Likes reseteados para sesión ${sesionIdNum}`);
-    res.json({ 
-      success: true, 
-      message: 'Likes reseteados correctamente',
-      sesion_id: sesionIdNum
+    // Resetear likes a 0
+    await query(`
+      INSERT INTO reacciones (sesion_id, likes) 
+      VALUES ($1, 0)
+      ON CONFLICT (sesion_id) 
+      DO UPDATE SET 
+        likes = 0,
+        fecha_actualizacion = NOW()
+    `, [sesion_id]);
+    
+    console.log('✅ Likes reseteados a 0');
+    
+    res.json({
+      sesion_id: parseInt(sesion_id),
+      likes: 0,
+      mensaje: 'Likes reseteados exitosamente'
     });
-  });
+    
+  } catch (error) {
+    console.error('❌ Error al resetear likes:', error);
+    res.status(500).json({ error: 'Error al resetear los likes' });
+  }
 };
 
-module.exports = { 
-  obtenerReacciones, 
+module.exports = {
+  obtenerReacciones,
   darLike,
   obtenerLikesPorSesion,
   resetearLikes
