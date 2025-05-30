@@ -1,135 +1,62 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import Head from 'next/head';
 
 export default function ConfiguracionPage() {
   // Estados principales
   const [currentUser, setCurrentUser] = useState(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [activeTab, setActiveTab] = useState('upload-section');
+  const [sessions, setSessions] = useState([]);
+  const [selectedAlbum, setSelectedAlbum] = useState(null);
+  const [isEditingAlbum, setIsEditingAlbum] = useState(false);
+  const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState(null);
-  
-  // Estados para formularios
+
+  // Estados del formulario de login
   const [loginForm, setLoginForm] = useState({
     usuario: '',
     contrasena: ''
   });
-  
-  const [albumForm, setAlbumForm] = useState({
-    sesion: '',
-    descripcion: ''
-  });
-  
-  const [selectedFiles, setSelectedFiles] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [showModal, setShowModal] = useState(false);
-  const [modalData, setModalData] = useState({ title: '', message: '', onConfirm: null });
 
-  // Estados para usuarios
-  const [newUser, setNewUser] = useState({
+  // Estados para modales
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [modalData, setModalData] = useState({});
+  const [targetUser, setTargetUser] = useState(null);
+
+  // Estados para formularios
+  const [uploadForm, setUploadForm] = useState({
+    nombre: '',
+    descripcion: '',
+    archivos: []
+  });
+
+  const [newUserForm, setNewUserForm] = useState({
     usuario: '',
     contrasena: '',
     role: 'editor'
   });
 
-  const [passwordChange, setPasswordChange] = useState({
-    oldPassword: '',
-    newPassword: '',
-    confirmPassword: ''
-  });
+  // Referencias
+  const fileInputRef = useRef(null);
+  const addMoreFilesRef = useRef(null);
 
+  // API URL
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://mi-portafolio-backend-ca9g.onrender.com';
 
-  // Estilos inline para garantizar que se apliquen
-  const styles = {
-    container: {
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #f8fafc 0%, #e0f2fe 25%, #f3e8ff 100%)',
-      color: '#1f2937',
-      fontFamily: 'system-ui, -apple-system, sans-serif'
-    },
-    loginContainer: {
-      minHeight: '100vh',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: '1.5rem'
-    },
-    loginCard: {
-      background: 'rgba(255, 255, 255, 0.95)',
-      backdropFilter: 'blur(10px)',
-      padding: '2.5rem',
-      borderRadius: '1rem',
-      boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-      maxWidth: '28rem',
-      width: '100%',
-      border: '1px solid rgba(255, 255, 255, 0.2)'
-    },
-    header: {
-      background: 'rgba(255, 255, 255, 0.95)',
-      backdropFilter: 'blur(10px)',
-      position: 'sticky',
-      top: '0',
-      zIndex: '50',
-      borderBottom: '1px solid rgba(255, 255, 255, 0.2)',
-      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-    },
-    button: {
-      background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
-      color: 'white',
-      padding: '1rem 2rem',
-      borderRadius: '0.75rem',
-      border: 'none',
-      cursor: 'pointer',
-      fontWeight: '600',
-      transition: 'all 0.3s ease',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: '0.75rem',
-      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-      fontSize: '1rem'
-    },
-    input: {
-      width: '100%',
-      padding: '1rem',
-      paddingLeft: '3rem',
-      border: '1px solid #d1d5db',
-      borderRadius: '0.75rem',
-      fontSize: '1rem',
-      transition: 'all 0.3s ease',
-      background: 'rgba(255, 255, 255, 0.5)',
-      outline: 'none'
-    },
-    section: {
-      background: 'rgba(255, 255, 255, 0.95)',
-      backdropFilter: 'blur(10px)',
-      padding: '2rem',
-      borderRadius: '1rem',
-      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-      border: '1px solid rgba(255, 255, 255, 0.2)'
-    },
-    notification: {
-      position: 'fixed',
-      bottom: '1rem',
-      right: '1rem',
-      padding: '1rem 1.5rem',
-      borderRadius: '0.5rem',
-      color: 'white',
-      fontWeight: '500',
-      zIndex: '50',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '0.75rem',
-      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
-    }
+  // Utilidades
+  const showNotification = (message, type = 'success') => {
+    // Implementar notificación toast aquí
+    console.log(`${type.toUpperCase()}: ${message}`);
   };
 
-  // Funciones de utilidad
-  const showNotification = (msg, type = 'success') => {
-    setMessage({ type, text: msg });
-    setTimeout(() => setMessage(null), 4000);
-  };
+  const isAdmin = () => currentUser?.role === 'admin';
+  const isEditor = () => currentUser?.role === 'editor';
+  const canEditAlbums = () => isAdmin();
+  const canDeleteAlbums = () => isAdmin();
+  const canManageUsers = () => isAdmin();
 
   const getAuthHeaders = () => {
     if (!currentUser) return {};
@@ -139,16 +66,33 @@ export default function ConfiguracionPage() {
     };
   };
 
-  const isAdmin = () => currentUser && currentUser.role === 'admin';
+  const formatDate = (d) => {
+    return new Date(d).toLocaleDateString('es-ES', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+  };
 
-  // Función de login
-  const handleLogin = async () => {
-    if (!loginForm.usuario || !loginForm.contrasena) {
-      showNotification('Por favor completa todos los campos', 'error');
-      return;
+  const isImageFile = (tipo) => tipo && tipo.startsWith('image/');
+  const isVideoFile = (tipo) => tipo && tipo.startsWith('video/');
+
+  const getFileUrl = (ruta) => {
+    if (!ruta) return '';
+    let cleanPath = ruta.replace(/\\/g, '/');
+    if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
+      return cleanPath;
     }
+    if (!cleanPath.startsWith('uploads/')) {
+      cleanPath = 'uploads/' + cleanPath.replace(/^.*uploads\//, '');
+    }
+    return `${API_URL}/${cleanPath}`;
+  };
 
+  // Funciones de API
+  const handleLogin = async () => {
     setLoading(true);
+
     try {
       const response = await fetch(`${API_URL}/api/usuarios/login`, {
         method: 'POST',
@@ -160,8 +104,9 @@ export default function ConfiguracionPage() {
 
       if (data.acceso) {
         setCurrentUser(data);
+        setIsLoggedIn(true);
         showNotification(`¡Bienvenido, ${data.usuario}!`);
-        setLoginForm({ usuario: '', contrasena: '' });
+        loadSessions();
         loadUsers();
       } else {
         showNotification('Usuario o contraseña incorrectos', 'error');
@@ -173,55 +118,57 @@ export default function ConfiguracionPage() {
     }
   };
 
-  // Función para manejar archivos
-  const handleFileChange = (e) => {
-    const files = Array.from(e.target.files);
-    setSelectedFiles(files);
-  };
-
-  // Función para crear álbum
   const handleCreateAlbum = async () => {
-    if (selectedFiles.length === 0) {
-      showNotification('Selecciona al menos un archivo', 'error');
+    if (!uploadForm.nombre.trim()) {
+      showNotification('El nombre del álbum es requerido', 'error');
       return;
     }
-    if (!albumForm.sesion) {
-      showNotification('El nombre del álbum es requerido', 'error');
+    if (uploadForm.archivos.length === 0) {
+      showNotification('Selecciona al menos un archivo', 'error');
       return;
     }
 
     setLoading(true);
     try {
-      const sessionRes = await fetch(`${API_URL}/api/sesiones`, {
+      // 1. Crear sesión
+      const sessionResponse = await fetch(`${API_URL}/api/sesiones`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...getAuthHeaders()
         },
-        body: JSON.stringify(albumForm)
+        body: JSON.stringify({ 
+          nombre: uploadForm.nombre, 
+          descripcion: uploadForm.descripcion 
+        })
       });
 
-      if (!sessionRes.ok) throw new Error('Error creando sesión');
-      
-      const sesion = await sessionRes.json();
+      if (!sessionResponse.ok) {
+        throw new Error('Error creando sesión');
+      }
 
+      const session = await sessionResponse.json();
+
+      // 2. Subir archivos
       let uploadedCount = 0;
-      for (const file of selectedFiles) {
+      for (const file of uploadForm.archivos) {
         const formData = new FormData();
         formData.append('archivo', file);
-        formData.append('sesion_id', sesion.id);
+        formData.append('sesion_id', session.id);
 
-        const uploadRes = await fetch(`${API_URL}/api/files/subir`, {
+        const uploadResponse = await fetch(`${API_URL}/api/files/subir`, {
           method: 'POST',
           body: formData
         });
 
-        if (uploadRes.ok) uploadedCount++;
+        if (uploadResponse.ok) {
+          uploadedCount++;
+        }
       }
 
-      showNotification(`Álbum "${albumForm.sesion}" creado con ${uploadedCount} archivo(s)`);
-      setAlbumForm({ sesion: '', descripcion: '' });
-      setSelectedFiles([]);
+      showNotification(`Álbum "${uploadForm.nombre}" creado con ${uploadedCount} archivo(s)`);
+      setUploadForm({ nombre: '', descripcion: '', archivos: [] });
+      loadSessions();
       setActiveTab('albums-section');
     } catch (error) {
       showNotification('Error creando álbum: ' + error.message, 'error');
@@ -230,27 +177,14 @@ export default function ConfiguracionPage() {
     }
   };
 
-  // Cargar usuarios
-  const loadUsers = async () => {
-    if (!isAdmin()) return;
-    
-    try {
-      const response = await fetch(`${API_URL}/api/usuarios`, {
-        headers: getAuthHeaders()
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setUsers(data);
-      }
-    } catch (error) {
-      console.error('Error cargando usuarios:', error);
-    }
-  };
-
-  // Crear usuario
-  const handleCreateUser = async () => {
-    if (!newUser.usuario || !newUser.contrasena) {
+  const handleAddUser = async () => {
+    if (!newUserForm.usuario.trim() || !newUserForm.contrasena) {
       showNotification('Complete todos los campos', 'error');
+      return;
+    }
+
+    if (newUserForm.contrasena.length < 4) {
+      showNotification('La contraseña debe tener al menos 4 caracteres', 'error');
       return;
     }
 
@@ -261,1007 +195,808 @@ export default function ConfiguracionPage() {
           'Content-Type': 'application/json',
           ...getAuthHeaders()
         },
-        body: JSON.stringify(newUser)
+        body: JSON.stringify(newUserForm)
       });
 
-      if (response.ok) {
-        showNotification(`Usuario ${newUser.usuario} creado exitosamente`);
-        setNewUser({ usuario: '', contrasena: '', role: 'editor' });
-        loadUsers();
-      } else {
+      if (!response.ok) {
         const error = await response.json();
-        showNotification(error.error || 'Error creando usuario', 'error');
+        throw new Error(error.error || 'Error del servidor');
       }
+
+      showNotification(`Usuario ${newUserForm.usuario} creado exitosamente`);
+      setNewUserForm({ usuario: '', contrasena: '', role: 'editor' });
+      loadUsers();
     } catch (error) {
-      showNotification('Error creando usuario', 'error');
+      showNotification(error.message, 'error');
     }
   };
 
-  // Cambiar contraseña
-  const handleChangePassword = async () => {
-    if (!passwordChange.newPassword || !passwordChange.confirmPassword) {
-      showNotification('Complete los campos de nueva contraseña', 'error');
-      return;
-    }
-
-    if (passwordChange.newPassword !== passwordChange.confirmPassword) {
-      showNotification('Las contraseñas no coinciden', 'error');
-      return;
-    }
-
+  const loadSessions = async () => {
     try {
-      const body = { nueva: passwordChange.newPassword };
-      if (passwordChange.oldPassword) body.actual = passwordChange.oldPassword;
-
-      const response = await fetch(`${API_URL}/api/usuarios/${currentUser.id}/password`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeaders()
-        },
-        body: JSON.stringify(body)
+      const response = await fetch(`${API_URL}/api/sesiones`, {
+        headers: getAuthHeaders()
       });
-
+      
       if (response.ok) {
-        showNotification('Contraseña actualizada exitosamente');
-        setPasswordChange({ oldPassword: '', newPassword: '', confirmPassword: '' });
-      } else {
-        const error = await response.json();
-        showNotification(error.error || 'Error actualizando contraseña', 'error');
+        const data = await response.json();
+        setSessions(data || []);
       }
     } catch (error) {
-      showNotification('Error actualizando contraseña', 'error');
+      console.error('Error cargando sesiones:', error);
     }
   };
 
-  // Eliminar usuario
-  const deleteUser = async (userId, username) => {
-    if (window.confirm(`¿Eliminar usuario ${username}?`)) {
-      try {
-        const response = await fetch(`${API_URL}/api/usuarios/${userId}`, {
-          method: 'DELETE',
-          headers: getAuthHeaders()
-        });
-
-        if (response.ok) {
-          showNotification('Usuario eliminado');
-          loadUsers();
-        } else {
-          const error = await response.json();
-          showNotification(error.error || 'Error eliminando usuario', 'error');
-        }
-      } catch (error) {
-        showNotification('Error eliminando usuario', 'error');
+  const loadUsers = async () => {
+    if (!canManageUsers() && !isEditor()) return;
+    
+    try {
+      const response = await fetch(`${API_URL}/api/usuarios`, {
+        headers: getAuthHeaders()
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setUsers(data || []);
       }
+    } catch (error) {
+      console.error('Error cargando usuarios:', error);
     }
   };
 
-  if (!currentUser) {
-    return (
-      <div style={styles.container}>
-        <div style={styles.loginContainer}>
-          <div style={styles.loginCard}>
-            <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-              <div style={{
-                width: '80px',
-                height: '80px',
-                background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
-                borderRadius: '1rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                margin: '0 auto 1.5rem auto',
-                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                fontSize: '2rem'
-              }}>
-                🔒
-              </div>
-              <h2 style={{ fontSize: '1.875rem', fontWeight: 'bold', color: '#1f2937', marginBottom: '0.5rem' }}>
-                Acceso Administrativo
-              </h2>
-              <p style={{ color: '#6b7280' }}>Ingresa tus credenciales para continuar</p>
-            </div>
+  const selectAlbum = async (albumId) => {
+    try {
+      const response = await fetch(`${API_URL}/api/sesiones/${albumId}`, {
+        headers: getAuthHeaders()
+      });
+      
+      if (response.ok) {
+        const album = await response.json();
+        setSelectedAlbum(album);
+      }
+    } catch (error) {
+      console.error('Error cargando álbum:', error);
+    }
+  };
 
-            {message && (
-              <div style={{
-                ...styles.notification,
-                position: 'static',
-                marginBottom: '1.5rem',
-                background: message.type === 'success' 
-                  ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
-                  : 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
-              }}>
-                <span style={{ fontSize: '1.25rem' }}>{message.type === 'success' ? '✅' : '⚠️'}</span>
-                {message.text}
-              </div>
-            )}
+  const handleFileChange = (e) => {
+    const files = Array.from(e.target.files);
+    setUploadForm(prev => ({ ...prev, archivos: files }));
+  };
 
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '600', color: '#374151', marginBottom: '0.75rem' }}>
-                Usuario
-              </label>
-              <div style={{ position: 'relative' }}>
-                <span style={{
-                  position: 'absolute',
-                  left: '1rem',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  fontSize: '1.25rem',
-                  color: '#9ca3af'
-                }}>
-                  👤
-                </span>
-                <input
-                  type="text"
-                  value={loginForm.usuario}
-                  onChange={(e) => setLoginForm(prev => ({ ...prev, usuario: e.target.value }))}
-                  placeholder="Nombre de usuario"
-                  style={styles.input}
-                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                  onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
-                />
-              </div>
-            </div>
+  // Componente de Login
+  const LoginSection = () => (
+    <div className="glass p-10 rounded-2xl shadow-xl max-w-md mx-auto mt-20 border border-white/20">
+      <div className="text-center mb-8">
+        <div className="w-20 h-20 gradient-blue rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
+          <i className="fas fa-lock text-white text-3xl"></i>
+        </div>
+        <h2 className="text-3xl font-bold text-gray-800 mb-2">
+          Acceso Administrativo
+        </h2>
+        <p className="text-gray-500">Ingresa tus credenciales para continuar</p>
+      </div>
 
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '600', color: '#374151', marginBottom: '0.75rem' }}>
-                Contraseña
-              </label>
-              <div style={{ position: 'relative' }}>
-                <span style={{
-                  position: 'absolute',
-                  left: '1rem',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  fontSize: '1.25rem',
-                  color: '#9ca3af'
-                }}>
-                  🔑
-                </span>
-                <input
-                  type="password"
-                  value={loginForm.contrasena}
-                  onChange={(e) => setLoginForm(prev => ({ ...prev, contrasena: e.target.value }))}
-                  placeholder="Contraseña"
-                  style={styles.input}
-                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                  onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
-                />
-              </div>
-            </div>
-
-            <button
-              onClick={handleLogin}
-              disabled={loading}
-              style={{
-                ...styles.button,
-                width: '100%',
-                opacity: loading ? 0.5 : 1,
-                cursor: loading ? 'not-allowed' : 'pointer'
-              }}
-              onMouseEnter={(e) => !loading && (e.target.style.transform = 'scale(1.05)')}
-              onMouseLeave={(e) => !loading && (e.target.style.transform = 'scale(1)')}
-            >
-              {loading ? (
-                <>
-                  <span style={{ animation: 'spin 1s linear infinite' }}>⏳</span>
-                  Iniciando sesión...
-                </>
-              ) : (
-                <>
-                  🚪 Iniciar Sesión
-                </>
-              )}
-            </button>
+      <div className="space-y-6">
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-3">
+            Usuario
+          </label>
+          <div className="relative">
+            <span className="absolute inset-y-0 left-0 flex items-center pl-4 text-gray-400">
+              <i className="fas fa-user"></i>
+            </span>
+            <input
+              type="text"
+              value={loginForm.usuario}
+              onChange={(e) => setLoginForm(prev => ({ ...prev, usuario: e.target.value }))}
+              placeholder="Nombre de usuario"
+              className="w-full p-4 pl-12 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all bg-white/50 backdrop-blur-sm"
+            />
           </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-3">
+            Contraseña
+          </label>
+          <div className="relative">
+            <span className="absolute inset-y-0 left-0 flex items-center pl-4 text-gray-400">
+              <i className="fas fa-key"></i>
+            </span>
+            <input
+              type="password"
+              value={loginForm.contrasena}
+              onChange={(e) => setLoginForm(prev => ({ ...prev, contrasena: e.target.value }))}
+              placeholder="Contraseña"
+              className="w-full p-4 pl-12 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all bg-white/50 backdrop-blur-sm"
+            />
+          </div>
+        </div>
+
+        <button
+          onClick={handleLogin}
+          disabled={loading}
+          className="w-full gradient-blue text-white p-4 rounded-xl hover:shadow-lg transition-all font-semibold flex items-center justify-center gap-3 shadow-md transform hover:scale-105"
+        >
+          <i className="fas fa-sign-in-alt"></i>
+          {loading ? 'Iniciando...' : 'Iniciar Sesión'}
+        </button>
+      </div>
+    </div>
+  );
+
+  // Componente de Navegación
+  const Navigation = () => (
+    <nav className="glass rounded-2xl mb-8 border border-white/20 shadow-lg overflow-hidden">
+      <ul className="flex flex-wrap text-sm font-medium text-center">
+        <li className="nav-tab flex-1">
+          <button
+            onClick={() => setActiveTab('upload-section')}
+            className={`inline-block w-full p-6 border-b-2 transition-all backdrop-blur-sm ${
+              activeTab === 'upload-section'
+                ? 'text-blue-600 border-blue-600 bg-blue-50/50'
+                : 'text-gray-600 border-transparent hover:border-gray-300 hover:text-gray-800 hover:bg-gray-50/50'
+            }`}
+          >
+            <i className="fas fa-upload mr-3 text-lg"></i>
+            <div>
+              <div className="font-semibold">Subir Álbum</div>
+              <div className="text-xs opacity-75">Crear nuevo contenido</div>
+            </div>
+          </button>
+        </li>
+        <li className="nav-tab flex-1">
+          <button
+            onClick={() => setActiveTab('albums-section')}
+            className={`inline-block w-full p-6 border-b-2 transition-all backdrop-blur-sm ${
+              activeTab === 'albums-section'
+                ? 'text-blue-600 border-blue-600 bg-blue-50/50'
+                : 'text-gray-600 border-transparent hover:border-gray-300 hover:text-gray-800 hover:bg-gray-50/50'
+            }`}
+          >
+            <i className="fas fa-images mr-3 text-lg"></i>
+            <div>
+              <div className="font-semibold">Gestionar Álbumes</div>
+              <div className="text-xs opacity-75">Editar y organizar</div>
+            </div>
+          </button>
+        </li>
+        {canManageUsers() && (
+          <li className="nav-tab flex-1">
+            <button
+              onClick={() => setActiveTab('users-section')}
+              className={`inline-block w-full p-6 border-b-2 transition-all backdrop-blur-sm ${
+                activeTab === 'users-section'
+                  ? 'text-blue-600 border-blue-600 bg-blue-50/50'
+                  : 'text-gray-600 border-transparent hover:border-gray-300 hover:text-gray-800 hover:bg-gray-50/50'
+              }`}
+            >
+              <i className="fas fa-users-cog mr-3 text-lg"></i>
+              <div>
+                <div className="font-semibold">Usuarios</div>
+                <div className="text-xs opacity-75">Administrar accesos</div>
+              </div>
+            </button>
+          </li>
+        )}
+      </ul>
+    </nav>
+  );
+
+  // Componente de Subida de Álbumes
+  const UploadSection = () => (
+    <section className="config-tab glass p-8 rounded-2xl shadow-lg border border-white/20">
+      <div className="flex items-center mb-8">
+        <div className="w-12 h-12 gradient-green rounded-xl flex items-center justify-center mr-4 shadow-lg">
+          <i className="fas fa-plus text-white text-xl"></i>
+        </div>
+        <div>
+          <h2 className="text-2xl font-bold text-gray-800">
+            Crear nuevo álbum
+          </h2>
+          <p className="text-gray-500">
+            Sube tus mejores momentos audiovisuales
+          </p>
         </div>
       </div>
-    );
-  }
 
-  return (
-    <div style={styles.container}>
-      {/* Header */}
-      <header style={styles.header}>
-        <div style={{ maxWidth: '80rem', margin: '0 auto', padding: '0 1.5rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem 0' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-              <div style={{
-                width: '40px',
-                height: '40px',
-                background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
-                borderRadius: '0.75rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                color: 'white',
-                fontSize: '1.25rem'
-              }}>
-                ⚙️
-              </div>
-              <div>
-                <h1 style={{
-                  fontSize: '1.25rem',
-                  fontWeight: 'bold',
-                  background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
-                  backgroundClip: 'text'
-                }}>
-                  Panel de Administración
-                </h1>
-                <p style={{ fontSize: '0.75rem', color: '#6b7280' }}>
-                  Gestión de contenido audiovisual
-                </p>
-              </div>
-              <span style={{
-                padding: '0.25rem 0.75rem',
-                fontSize: '0.75rem',
-                fontWeight: '600',
-                borderRadius: '9999px',
-                color: 'white',
-                background: isAdmin() 
-                  ? 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)'
-                  : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.25rem'
-              }}>
-                <span style={{ width: '8px', height: '8px', background: 'white', borderRadius: '50%' }}></span>
-                {isAdmin() ? 'Administrador' : 'Editor'}
-              </span>
+      <div className="space-y-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="space-y-6">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-3">
+                Nombre del álbum *
+              </label>
+              <input
+                type="text"
+                value={uploadForm.nombre}
+                onChange={(e) => setUploadForm(prev => ({ ...prev, nombre: e.target.value }))}
+                placeholder="Ej: Vacaciones de verano 2025"
+                className="w-full border border-gray-200 p-4 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all bg-white/50 backdrop-blur-sm"
+              />
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-              <div style={{ fontSize: '0.875rem', fontWeight: '500' }}>
-                <span style={{ fontWeight: '500' }}>{currentUser.usuario}</span>
-                <span style={{
-                  marginLeft: '0.5rem',
-                  padding: '0.25rem 0.5rem',
-                  fontSize: '0.75rem',
-                  borderRadius: '9999px',
-                  background: isAdmin() ? '#f3e8ff' : '#dbeafe',
-                  color: isAdmin() ? '#7c3aed' : '#2563eb'
-                }}>
-                  {isAdmin() ? '👑 Admin' : '👤 Editor'}
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-3">
+                Descripción
+              </label>
+              <textarea
+                value={uploadForm.descripcion}
+                onChange={(e) => setUploadForm(prev => ({ ...prev, descripcion: e.target.value }))}
+                placeholder="Describe este álbum y los momentos especiales que contiene..."
+                rows="4"
+                className="w-full border border-gray-200 p-4 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all resize-none bg-white/50 backdrop-blur-sm"
+              ></textarea>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-3">
+              Archivos *
+            </label>
+            <div className="border-2 border-dashed border-gray-300 rounded-2xl p-8 text-center hover:bg-white/30 hover:border-blue-400 transition-all duration-300 min-h-[250px] flex flex-col justify-center backdrop-blur-sm">
+              <input
+                type="file"
+                ref={fileInputRef}
+                multiple
+                accept="image/*,video/*"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className="cursor-pointer flex flex-col items-center justify-center"
+              >
+                <div className="w-16 h-16 gradient-blue rounded-2xl flex items-center justify-center mb-6 shadow-lg">
+                  <i className="fas fa-cloud-upload-alt text-white text-2xl"></i>
+                </div>
+                <span className="text-lg font-semibold text-gray-700 mb-2">
+                  Arrastra archivos aquí o haz clic para seleccionar
+                </span>
+                <span className="text-sm text-gray-500">
+                  JPG, PNG, GIF, MP4 - Máximo 50MB por archivo
                 </span>
               </div>
-              <button
-                onClick={() => setCurrentUser(null)}
-                style={{
-                  color: '#6b7280',
-                  padding: '0.5rem 1rem',
-                  borderRadius: '0.5rem',
-                  border: 'none',
-                  background: 'transparent',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  transition: 'all 0.3s ease'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.color = '#3b82f6';
-                  e.target.style.background = 'rgba(255, 255, 255, 0.5)';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.color = '#6b7280';
-                  e.target.style.background = 'transparent';
-                }}
-              >
-                🚪 <span>Cerrar Sesión</span>
-              </button>
+              
+              {uploadForm.archivos.length > 0 && (
+                <div className="mt-6 space-y-3 max-h-40 overflow-y-auto custom-scrollbar">
+                  {uploadForm.archivos.map((file, index) => (
+                    <div key={index} className="flex items-center gap-3 text-sm bg-gradient-to-r from-blue-50 to-purple-50 p-3 rounded-lg border border-blue-200">
+                      <div className="flex-shrink-0">
+                        <i className={`fas ${file.type.startsWith('image/') ? 'fa-image text-blue-600' : 'fa-video text-purple-600'} text-lg`}></i>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-800 truncate">{file.name}</p>
+                        <p className="text-xs text-gray-500">
+                          {(file.size / 1024 / 1024).toFixed(1)} MB • {file.type.startsWith('image/') ? 'Imagen' : 'Video'}
+                        </p>
+                      </div>
+                      <div className="flex-shrink-0">
+                        <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full font-medium">
+                          ✓ Listo
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
-      </header>
 
-      <main style={{ maxWidth: '80rem', margin: '0 auto', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-        {/* Notificación */}
-        {message && (
-          <div style={{
-            ...styles.notification,
-            background: message.type === 'success' 
-              ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
-              : 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
-          }}>
-            <span style={{ fontSize: '1.25rem' }}>{message.type === 'success' ? '✅' : '⚠️'}</span>
-            <span style={{ fontWeight: '500' }}>{message.text}</span>
-          </div>
-        )}
+        <div className="flex justify-end pt-6 border-t border-gray-200">
+          <button
+            onClick={handleCreateAlbum}
+            disabled={loading}
+            className="gradient-green text-white px-8 py-4 rounded-xl hover:shadow-lg transition-all flex items-center gap-3 shadow-md font-semibold transform hover:scale-105"
+          >
+            <i className="fas fa-save text-lg"></i>
+            {loading ? 'Creando...' : 'Crear Álbum'}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
 
-        {/* Navegación por pestañas */}
-        <nav style={{
-          ...styles.section,
-          padding: '0',
-          overflow: 'hidden'
-        }}>
-          <div style={{ display: 'flex', fontSize: '0.875rem', fontWeight: '500', textAlign: 'center' }}>
-            <button
-              onClick={() => setActiveTab('upload-section')}
-              style={{
-                flex: '1',
-                padding: '1.5rem',
-                border: 'none',
-                borderBottom: activeTab === 'upload-section' ? '2px solid #3b82f6' : '2px solid transparent',
-                background: activeTab === 'upload-section' ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
-                color: activeTab === 'upload-section' ? '#3b82f6' : '#6b7280',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease'
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem' }}>
-                <span style={{ fontSize: '1.25rem' }}>📤</span>
-                <div>
-                  <div style={{ fontWeight: '600' }}>Subir Álbum</div>
-                  <div style={{ fontSize: '0.75rem', opacity: '0.75' }}>Crear nuevo contenido</div>
-                </div>
-              </div>
-            </button>
-            <button
-              onClick={() => setActiveTab('albums-section')}
-              style={{
-                flex: '1',
-                padding: '1.5rem',
-                border: 'none',
-                borderBottom: activeTab === 'albums-section' ? '2px solid #3b82f6' : '2px solid transparent',
-                background: activeTab === 'albums-section' ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
-                color: activeTab === 'albums-section' ? '#3b82f6' : '#6b7280',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease'
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem' }}>
-                <span style={{ fontSize: '1.25rem' }}>🖼️</span>
-                <div>
-                  <div style={{ fontWeight: '600' }}>Gestionar Álbumes</div>
-                  <div style={{ fontSize: '0.75rem', opacity: '0.75' }}>Editar y organizar</div>
-                </div>
-              </div>
-            </button>
-            {isAdmin() && (
-              <button
-                onClick={() => setActiveTab('users-section')}
-                style={{
-                  flex: '1',
-                  padding: '1.5rem',
-                  border: 'none',
-                  borderBottom: activeTab === 'users-section' ? '2px solid #3b82f6' : '2px solid transparent',
-                  background: activeTab === 'users-section' ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
-                  color: activeTab === 'users-section' ? '#3b82f6' : '#6b7280',
-                  cursor: 'pointer',
-                  transition: 'all 0.3s ease'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem' }}>
-                  <span style={{ fontSize: '1.25rem' }}>👥</span>
-                  <div>
-                    <div style={{ fontWeight: '600' }}>Usuarios</div>
-                    <div style={{ fontSize: '0.75rem', opacity: '0.75' }}>Administrar accesos</div>
-                  </div>
-                </div>
-              </button>
-            )}
-          </div>
-        </nav>
-
-        {/* Sección Subir Álbum */}
-        {activeTab === 'upload-section' && (
-          <section style={styles.section}>
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '2rem' }}>
-              <div style={{
-                width: '48px',
-                height: '48px',
-                background: 'linear-gradient(135deg, #10b981 0%, #3b82f6 100%)',
-                borderRadius: '0.75rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginRight: '1rem',
-                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                color: 'white',
-                fontSize: '1.5rem'
-              }}>
-                ➕
+  // Componente de Gestión de Álbumes
+  const AlbumsSection = () => (
+    <section className="config-tab">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+        <div className="xl:col-span-1">
+          <div className="glass p-6 rounded-2xl shadow-lg border border-white/20">
+            <div className="flex items-center mb-6">
+              <div className="w-10 h-10 gradient-blue rounded-xl flex items-center justify-center mr-3 shadow-lg">
+                <i className="fas fa-sort text-white"></i>
               </div>
               <div>
-                <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#1f2937' }}>Crear nuevo álbum</h2>
-                <p style={{ color: '#6b7280' }}>Sube tus mejores momentos audiovisuales</p>
+                <h2 className="text-xl font-bold text-gray-800">Álbumes</h2>
+                <p className="text-xs text-gray-500">Selecciona para editar</p>
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '600', color: '#374151', marginBottom: '0.75rem' }}>
-                    Nombre del álbum *
-                  </label>
-                  <input
-                    type="text"
-                    value={albumForm.sesion}
-                    onChange={(e) => setAlbumForm(prev => ({ ...prev, sesion: e.target.value }))}
-                    placeholder="Ej: Vacaciones de verano 2025"
-                    style={{
-                      width: '100%',
-                      padding: '1rem',
-                      border: '1px solid #d1d5db',
-                      borderRadius: '0.75rem',
-                      fontSize: '1rem',
-                      outline: 'none',
-                      transition: 'all 0.3s ease',
-                      background: 'rgba(255, 255, 255, 0.5)'
-                    }}
-                    onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                    onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
-                  />
+            <ul className="space-y-4 max-h-96 overflow-y-auto custom-scrollbar">
+              {sessions.length === 0 ? (
+                <div className="text-center p-12 text-gray-500">
+                  <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <i className="fas fa-images text-2xl text-gray-400"></i>
+                  </div>
+                  <h3 className="text-lg font-medium text-gray-700 mb-2">No hay álbumes</h3>
+                  <p className="text-sm text-gray-500">Crea tu primer álbum en la pestaña "Subir Álbum"</p>
                 </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '600', color: '#374151', marginBottom: '0.75rem' }}>
-                    Descripción
-                  </label>
-                  <textarea
-                    value={albumForm.descripcion}
-                    onChange={(e) => setAlbumForm(prev => ({ ...prev, descripcion: e.target.value }))}
-                    placeholder="Describe este álbum y los momentos especiales que contiene..."
-                    rows="4"
-                    style={{
-                      width: '100%',
-                      padding: '1rem',
-                      border: '1px solid #d1d5db',
-                      borderRadius: '0.75rem',
-                      fontSize: '1rem',
-                      outline: 'none',
-                      transition: 'all 0.3s ease',
-                      background: 'rgba(255, 255, 255, 0.5)',
-                      resize: 'none'
-                    }}
-                    onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                    onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '600', color: '#374151', marginBottom: '0.75rem' }}>
-                  Archivos *
-                </label>
-                <div style={{
-                  border: '2px dashed #d1d5db',
-                  borderRadius: '1rem',
-                  padding: '2rem',
-                  textAlign: 'center',
-                  minHeight: '250px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'center',
-                  transition: 'all 0.3s ease',
-                  background: 'rgba(255, 255, 255, 0.3)',
-                  cursor: 'pointer'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = 'rgba(255, 255, 255, 0.6)';
-                  e.target.style.borderColor = '#3b82f6';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = 'rgba(255, 255, 255, 0.3)';
-                  e.target.style.borderColor = '#d1d5db';
-                }}>
-                  <input
-                    type="file"
-                    multiple
-                    accept="image/*,video/*"
-                    onChange={handleFileChange}
-                    style={{ display: 'none' }}
-                    id="fileInput"
-                  />
-                  <label htmlFor="fileInput" style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    <div style={{
-                      width: '64px',
-                      height: '64px',
-                      background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
-                      borderRadius: '1rem',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      marginBottom: '1.5rem',
-                      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                      color: 'white',
-                      fontSize: '1.5rem'
-                    }}>
-                      ☁️
+              ) : (
+                sessions.map((session) => (
+                  <li
+                    key={session.id}
+                    onClick={() => selectAlbum(session.id)}
+                    className={`album-item p-4 bg-white rounded-xl shadow-sm border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all duration-200 cursor-pointer ${
+                      selectedAlbum?.id === session.id ? 'ring-2 ring-blue-500' : ''
+                    }`}
+                  >
+                    <div className="flex justify-between items-center">
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-semibold text-gray-800 mb-1 truncate">
+                          {session.nombre}
+                        </h4>
+                        <p className="text-sm text-gray-500 mb-3 line-clamp-2">
+                          {session.descripcion || 'Sin descripción'}
+                        </p>
+                        <div className="flex items-center gap-4 text-xs text-gray-400">
+                          <span className="flex items-center">
+                            <i className="fas fa-calendar mr-1"></i>
+                            {formatDate(session.fecha_creacion)}
+                          </span>
+                          <span className="flex items-center">
+                            <i className="fas fa-images mr-1"></i>
+                            {session.archivo_count || 0} archivo(s)
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 ml-4">
+                        <span className="flex items-center text-red-500 font-medium">
+                          <i className="fas fa-heart mr-1"></i>{session.likes || 0}
+                        </span>
+                      </div>
                     </div>
-                    <span style={{ fontSize: '1.125rem', fontWeight: '600', color: '#374151', marginBottom: '0.5rem' }}>
-                      Arrastra archivos aquí o haz clic para seleccionar
-                    </span>
-                    <span style={{ fontSize: '0.875rem', color: '#6b7280' }}>
-                      JPG, PNG, GIF, MP4 - Máximo 50MB por archivo
-                    </span>
-                  </label>
+                  </li>
+                ))
+              )}
+            </ul>
+          </div>
+        </div>
+
+        <div className="xl:col-span-2">
+          <div className="glass p-8 rounded-2xl shadow-lg border border-white/20 min-h-[600px]">
+            {!selectedAlbum ? (
+              <div className="text-center p-16 text-gray-500">
+                <div className="w-20 h-20 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                  <i className="fas fa-images text-3xl text-gray-400"></i>
+                </div>
+                <h3 className="text-xl font-semibold text-gray-700 mb-3">
+                  Selecciona un álbum
+                </h3>
+                <p className="text-gray-500">
+                  Elige un álbum de la lista para ver y editar sus detalles
+                </p>
+              </div>
+            ) : (
+              <div>
+                <div className="flex items-start justify-between mb-6">
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-2xl font-bold text-gray-800 mb-2">
+                      {selectedAlbum.nombre}
+                    </h3>
+                    <p className="text-gray-600 mb-3">
+                      {selectedAlbum.descripcion || 'Sin descripción'}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        <i className="fas fa-calendar-alt mr-1"></i>
+                        {formatDate(selectedAlbum.fecha_creacion)}
+                      </span>
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                        <i className="fas fa-images mr-1"></i>
+                        {selectedAlbum.archivos?.length || 0} archivo(s)
+                      </span>
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                        <i className="fas fa-heart mr-1"></i>
+                        {selectedAlbum.likes || 0} like(s)
+                      </span>
+                    </div>
+                  </div>
                   
-                  {selectedFiles.length > 0 && (
-                    <div style={{ marginTop: '1.5rem', maxHeight: '160px', overflowY: 'auto' }}>
-                      {selectedFiles.map((file, index) => (
-                        <div key={index} style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.75rem',
-                          fontSize: '0.875rem',
-                          background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%)',
-                          padding: '0.75rem',
-                          borderRadius: '0.5rem',
-                          border: '1px solid rgba(59, 130, 246, 0.2)',
-                          margin: '0.5rem 0'
-                        }}>
-                          <div style={{ fontSize: '1.25rem' }}>
-                            {file.type.startsWith('image/') ? '🖼️' : '🎥'}
+                  {canEditAlbums() && (
+                    <div className="flex items-center gap-2 ml-4">
+                      <button className="text-blue-600 hover:bg-blue-50 p-2 rounded-full transition-colors" title="Editar álbum">
+                        <i className="fas fa-edit text-lg"></i>
+                      </button>
+                      {canDeleteAlbums() && (
+                        <button className="text-red-600 hover:bg-red-50 p-2 rounded-full transition-colors" title="Eliminar álbum">
+                          <i className="fas fa-trash text-lg"></i>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-t border-gray-200 pt-6">
+                  <div className="flex justify-between items-center mb-4">
+                    <h4 className="text-lg font-semibold text-gray-800">
+                      <i className="fas fa-images mr-2 text-blue-600"></i>
+                      Archivos del álbum
+                    </h4>
+                    <label className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-2 rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all cursor-pointer inline-flex items-center gap-2 shadow-md hover:shadow-lg transform hover:scale-105">
+                      <i className="fas fa-plus text-sm"></i>
+                      Añadir archivos
+                      <input type="file" multiple accept="image/*,video/*" className="hidden" />
+                    </label>
+                  </div>
+                  
+                  {selectedAlbum.archivos && selectedAlbum.archivos.length > 0 ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                      {selectedAlbum.archivos.map((archivo) => (
+                        <div key={archivo.id} className="file-item group relative">
+                          {isImageFile(archivo.tipo_archivo) ? (
+                            <div className="aspect-square bg-gray-200 rounded-lg overflow-hidden">
+                              <img
+                                src={getFileUrl(archivo.ruta)}
+                                alt={archivo.nombre_archivo}
+                                className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform"
+                              />
+                            </div>
+                          ) : isVideoFile(archivo.tipo_archivo) ? (
+                            <div className="aspect-square bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg overflow-hidden flex items-center justify-center cursor-pointer hover:from-gray-700 hover:to-gray-800 transition-colors">
+                              <i className="fas fa-play-circle text-5xl text-white opacity-90"></i>
+                            </div>
+                          ) : (
+                            <div className="aspect-square bg-gray-100 rounded-lg flex items-center justify-center">
+                              <i className="fas fa-file text-2xl text-gray-400"></i>
+                            </div>
+                          )}
+                          
+                          {/* Overlay de acciones */}
+                          <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-60 transition-all duration-200 flex items-center justify-center opacity-0 group-hover:opacity-100 rounded-lg">
+                            <div className="flex gap-2">
+                              <button className="p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors transform hover:scale-110" title="Ver archivo">
+                                <i className={`fas ${isVideoFile(archivo.tipo_archivo) ? 'fa-play' : 'fa-eye'}`}></i>
+                              </button>
+                              {canDeleteAlbums() && (
+                                <button className="p-2 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors transform hover:scale-110" title="Eliminar archivo">
+                                  <i className="fas fa-trash"></i>
+                                </button>
+                              )}
+                            </div>
                           </div>
-                          <div style={{ flex: '1', minWidth: '0' }}>
-                            <p style={{ fontWeight: '500', color: '#1f2937', margin: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</p>
-                            <p style={{ fontSize: '0.75rem', color: '#6b7280', margin: '0' }}>
-                              {(file.size / 1024 / 1024).toFixed(1)} MB • {file.type.startsWith('image/') ? 'Imagen' : 'Video'}
+                          
+                          <div className="mt-2">
+                            <p className="text-xs text-gray-600 truncate font-medium">
+                              {archivo.nombre_archivo}
                             </p>
-                          </div>
-                          <div>
-                            <span style={{
-                              padding: '0.25rem 0.5rem',
-                              background: '#dcfce7',
-                              color: '#166534',
-                              fontSize: '0.75rem',
-                              borderRadius: '9999px',
-                              fontWeight: '500'
-                            }}>
-                              ✓ Listo
-                            </span>
                           </div>
                         </div>
                       ))}
                     </div>
+                  ) : (
+                    <div className="text-center p-12 border-2 border-dashed border-gray-300 rounded-xl">
+                      <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i className="fas fa-images text-2xl text-gray-400"></i>
+                      </div>
+                      <h3 className="text-lg font-medium text-gray-700 mb-2">
+                        No hay archivos
+                      </h3>
+                      <p className="text-sm text-gray-500">
+                        Añade archivos usando el botón de arriba
+                      </p>
+                    </div>
                   )}
                 </div>
               </div>
-            </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '1.5rem', borderTop: '1px solid #e5e7eb', marginTop: '2rem' }}>
-              <button
-                onClick={handleCreateAlbum}
-                disabled={loading}
-                style={{
-                  ...styles.button,
-                  background: 'linear-gradient(135deg, #10b981 0%, #3b82f6 100%)',
-                  opacity: loading ? 0.5 : 1,
-                  cursor: loading ? 'not-allowed' : 'pointer'
-                }}
-                onMouseEnter={(e) => !loading && (e.target.style.transform = 'scale(1.05)')}
-                onMouseLeave={(e) => !loading && (e.target.style.transform = 'scale(1)')}
-              >
-                {loading ? (
-                  <>
-                    <span style={{ animation: 'spin 1s linear infinite' }}>⏳</span>
-                    Creando álbum...
-                  </>
-                ) : (
-                  <>
-                    💾 Crear Álbum
-                  </>
-                )}
-              </button>
-            </div>
-          </section>
-        )}
+  // Componente de Gestión de Usuarios
+  const UsersSection = () => (
+    <section className="config-tab glass p-8 rounded-2xl shadow-lg border border-white/20">
+      <div className="flex items-center mb-8">
+        <div className="w-12 h-12 gradient-purple rounded-xl flex items-center justify-center mr-4 shadow-lg">
+          <i className="fas fa-user-shield text-white text-xl"></i>
+        </div>
+        <div>
+          <h2 className="text-2xl font-bold text-gray-800">
+            Administración de usuarios
+          </h2>
+          <p className="text-gray-500">
+            Gestiona accesos y permisos del sistema
+          </p>
+        </div>
+      </div>
 
-        {/* Sección Gestionar Álbumes */}
-        {activeTab === 'albums-section' && (
-          <section style={styles.section}>
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '2rem' }}>
-              <div style={{
-                width: '48px',
-                height: '48px',
-                background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
-                borderRadius: '0.75rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginRight: '1rem',
-                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                color: 'white',
-                fontSize: '1.5rem'
-              }}>
-                🖼️
-              </div>
-              <div>
-                <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#1f2937' }}>Gestionar Álbumes</h2>
-                <p style={{ color: '#6b7280' }}>Organiza y edita tus álbumes existentes</p>
-              </div>
-            </div>
+      {/* Cambio de contraseña personal */}
+      <div className="mb-10 p-6 bg-gradient-to-r from-blue-50 to-purple-50 rounded-2xl border border-blue-200">
+        <h3 className="text-lg font-semibold mb-6 text-gray-800 flex items-center">
+          <i className="fas fa-key mr-3 text-blue-600"></i>
+          Cambiar mi contraseña
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Contraseña actual
+            </label>
+            <input
+              type="password"
+              placeholder="Tu contraseña actual"
+              className="w-full border border-gray-200 p-3 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all bg-white/70"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Nueva contraseña
+            </label>
+            <input
+              type="password"
+              placeholder="Nueva contraseña"
+              className="w-full border border-gray-200 p-3 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all bg-white/70"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Confirmar nueva
+            </label>
+            <input
+              type="password"
+              placeholder="Repetir nueva contraseña"
+              className="w-full border border-gray-200 p-3 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all bg-white/70"
+            />
+          </div>
+        </div>
+        <button className="mt-6 gradient-purple text-white px-6 py-3 rounded-xl hover:shadow-lg transition-all flex items-center gap-3 shadow-md font-semibold transform hover:scale-105">
+          <i className="fas fa-key"></i>
+          Cambiar mi contraseña
+        </button>
+      </div>
 
-            <div style={{ textAlign: 'center', padding: '4rem', color: '#6b7280' }}>
-              <div style={{
-                width: '80px',
-                height: '80px',
-                background: '#f3f4f6',
-                borderRadius: '1rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                margin: '0 auto 1.5rem auto',
-                fontSize: '2rem'
-              }}>
-                📁
-              </div>
-              <h3 style={{ fontSize: '1.25rem', fontWeight: '600', color: '#374151', marginBottom: '0.75rem' }}>
-                Funcionalidad en desarrollo
-              </h3>
-              <p style={{ color: '#6b7280' }}>
-                Pronto podrás gestionar tus álbumes desde aquí
-              </p>
-            </div>
-          </section>
-        )}
-
-        {/* Sección Usuarios */}
-        {activeTab === 'users-section' && isAdmin() && (
-          <section style={styles.section}>
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '2rem' }}>
-              <div style={{
-                width: '48px',
-                height: '48px',
-                background: 'linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%)',
-                borderRadius: '0.75rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginRight: '1rem',
-                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                color: 'white',
-                fontSize: '1.5rem'
-              }}>
-                🛡️
-              </div>
-              <div>
-                <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#1f2937' }}>Administración de usuarios</h2>
-                <p style={{ color: '#6b7280' }}>Gestiona accesos y permisos del sistema</p>
-              </div>
-            </div>
-
-            {/* Cambio de contraseña personal */}
-            <div style={{
-              marginBottom: '2.5rem',
-              padding: '1.5rem',
-              background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%)',
-              borderRadius: '1rem',
-              border: '1px solid rgba(59, 130, 246, 0.2)'
-            }}>
-              <h3 style={{
-                fontSize: '1.125rem',
-                fontWeight: '600',
-                marginBottom: '1.5rem',
-                color: '#1f2937',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.75rem'
-              }}>
-                <span style={{ fontSize: '1.25rem' }}>🔑</span>
-                Cambiar mi contraseña
-              </h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '600', color: '#374151', marginBottom: '0.5rem' }}>
-                    Contraseña actual
-                  </label>
-                  <input
-                    type="password"
-                    value={passwordChange.oldPassword}
-                    onChange={(e) => setPasswordChange(prev => ({ ...prev, oldPassword: e.target.value }))}
-                    placeholder="Tu contraseña actual"
-                    style={{
-                      width: '100%',
-                      padding: '0.75rem',
-                      border: '1px solid #d1d5db',
-                      borderRadius: '0.75rem',
-                      fontSize: '0.875rem',
-                      outline: 'none',
-                      transition: 'all 0.3s ease',
-                      background: 'rgba(255, 255, 255, 0.7)'
-                    }}
-                    onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                    onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '600', color: '#374151', marginBottom: '0.5rem' }}>
-                    Nueva contraseña
-                  </label>
-                  <input
-                    type="password"
-                    value={passwordChange.newPassword}
-                    onChange={(e) => setPasswordChange(prev => ({ ...prev, newPassword: e.target.value }))}
-                    placeholder="Nueva contraseña"
-                    style={{
-                      width: '100%',
-                      padding: '0.75rem',
-                      border: '1px solid #d1d5db',
-                      borderRadius: '0.75rem',
-                      fontSize: '0.875rem',
-                      outline: 'none',
-                      transition: 'all 0.3s ease',
-                      background: 'rgba(255, 255, 255, 0.7)'
-                    }}
-                    onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                    onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '600', color: '#374151', marginBottom: '0.5rem' }}>
-                    Confirmar nueva
-                  </label>
-                  <input
-                    type="password"
-                    value={passwordChange.confirmPassword}
-                    onChange={(e) => setPasswordChange(prev => ({ ...prev, confirmPassword: e.target.value }))}
-                    placeholder="Repetir nueva contraseña"
-                    style={{
-                      width: '100%',
-                      padding: '0.75rem',
-                      border: '1px solid #d1d5db',
-                      borderRadius: '0.75rem',
-                      fontSize: '0.875rem',
-                      outline: 'none',
-                      transition: 'all 0.3s ease',
-                      background: 'rgba(255, 255, 255, 0.7)'
-                    }}
-                    onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                    onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
-                  />
-                </div>
-              </div>
-              <button
-                onClick={handleChangePassword}
-                style={{
-                  marginTop: '1.5rem',
-                  padding: '0.75rem 1.5rem',
-                  background: 'linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%)',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '0.75rem',
-                  cursor: 'pointer',
-                  fontWeight: '600',
-                  fontSize: '0.875rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.75rem',
-                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                  transition: 'all 0.3s ease'
-                }}
-                onMouseEnter={(e) => e.target.style.transform = 'scale(1.05)'}
-                onMouseLeave={(e) => e.target.style.transform = 'scale(1)'}
-              >
-                🔑 Cambiar mi contraseña
-              </button>
-            </div>
-
-            {/* Lista de usuarios */}
-            <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '2rem' }}>
-              <h3 style={{
-                fontSize: '1.125rem',
-                fontWeight: '600',
-                marginBottom: '1.5rem',
-                color: '#1f2937',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.75rem'
-              }}>
-                <span style={{ fontSize: '1.25rem' }}>👥</span>
-                Lista de usuarios
-              </h3>
-              <div style={{
-                overflowX: 'auto',
-                background: 'rgba(255, 255, 255, 0.5)',
-                borderRadius: '1rem',
-                border: '1px solid rgba(255, 255, 255, 0.2)'
-              }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead style={{ background: 'linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%)' }}>
-                    <tr>
-                      <th style={{ padding: '1rem 1.5rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: 'bold', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                        Usuario
-                      </th>
-                      <th style={{ padding: '1rem 1.5rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: 'bold', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                        Rol
-                      </th>
-                      <th style={{ padding: '1rem 1.5rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: 'bold', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                        Acciones
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody style={{ background: 'rgba(255, 255, 255, 0.3)' }}>
-                    {users.map((user, index) => (
-                      <tr key={user.id} style={{ borderTop: index > 0 ? '1px solid #e5e7eb' : 'none' }}>
-                        <td style={{ padding: '1rem', fontWeight: '500', color: '#1f2937' }}>{user.usuario}</td>
-                        <td style={{ padding: '1rem' }}>
-                          <span style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            padding: '0.25rem 0.75rem',
-                            borderRadius: '9999px',
-                            fontSize: '0.75rem',
-                            fontWeight: '500',
-                            gap: '0.25rem',
-                            background: user.role === 'admin' ? '#f3e8ff' : '#dbeafe',
-                            color: user.role === 'admin' ? '#7c3aed' : '#2563eb'
-                          }}>
-                            <span>{user.role === 'admin' ? '👑' : '👤'}</span>
-                            {user.role === 'admin' ? 'Administrador' : 'Editor'}
-                          </span>
-                        </td>
-                        <td style={{ padding: '1rem' }}>
-                          {user.id !== 1 && user.usuario !== 'admin' && user.id !== currentUser.id ? (
-                            <button
-                              onClick={() => deleteUser(user.id, user.usuario)}
-                              style={{
-                                color: '#dc2626',
-                                background: 'transparent',
-                                border: 'none',
-                                padding: '0.5rem 0.75rem',
-                                borderRadius: '0.375rem',
-                                cursor: 'pointer',
-                                fontSize: '0.875rem',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.25rem',
-                                transition: 'all 0.3s ease'
-                              }}
-                              onMouseEnter={(e) => {
-                                e.target.style.color = '#991b1b';
-                                e.target.style.background = '#fef2f2';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.target.style.color = '#dc2626';
-                                e.target.style.background = 'transparent';
-                              }}
-                            >
-                              <span>🗑️</span>
-                              <span>Eliminar</span>
+      {/* Lista de usuarios */}
+      <div className="border-t border-gray-200 pt-8">
+        <h3 className="text-lg font-semibold mb-6 text-gray-800 flex items-center">
+          <i className="fas fa-users mr-3 text-purple-600"></i>
+          Lista de usuarios
+        </h3>
+        <div className="overflow-x-auto bg-white/50 rounded-2xl backdrop-blur-sm border border-white/20">
+          <table className="min-w-full">
+            <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
+              <tr>
+                <th className="py-4 px-6 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
+                  Usuario
+                </th>
+                <th className="py-4 px-6 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
+                  Rol
+                </th>
+                <th className="py-4 px-6 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
+                  Acciones
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200 bg-white/30">
+              {users.map((user) => (
+                <tr key={user.id} className="hover:bg-gray-50">
+                  <td className="py-4 px-4 font-medium text-gray-800">
+                    {user.usuario}
+                  </td>
+                  <td className="py-4 px-4">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      user.role === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
+                    }`}>
+                      <i className={`fas ${user.role === 'admin' ? 'fa-crown' : 'fa-user'} mr-1`}></i>
+                      {user.role === 'admin' ? 'Administrador' : 'Editor'}
+                    </span>
+                  </td>
+                  <td className="py-4 px-4">
+                    <div className="flex gap-2">
+                      {canManageUsers() && user.id !== currentUser?.id && (
+                        <>
+                          <button className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-3 py-1 rounded transition-colors flex items-center gap-1">
+                            <i className="fas fa-key text-xs"></i>
+                            <span className="text-sm">Cambiar contraseña</span>
+                          </button>
+                          {user.id !== 1 && user.usuario !== 'admin' && (
+                            <button className="text-red-600 hover:text-red-800 hover:bg-red-50 px-3 py-1 rounded transition-colors flex items-center gap-1">
+                              <i className="fas fa-trash text-xs"></i>
+                              <span className="text-sm">Eliminar</span>
                             </button>
-                          ) : (
-                            <span style={{
-                              color: '#9ca3af',
-                              fontSize: '0.875rem',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '0.5rem'
-                            }}>
-                              <span>🛡️</span>
-                              {user.id === 1 || user.usuario === 'admin' ? 'Protegido' : 'Tu cuenta'}
-                            </span>
                           )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                        </>
+                      )}
+                      {(user.id === 1 || user.usuario === 'admin') && (
+                        <span className="text-gray-400 flex items-center text-sm">
+                          <i className="fas fa-shield-alt mr-2"></i>Protegido
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
 
-              {/* Añadir usuario */}
-              <div style={{
-                marginTop: '2rem',
-                padding: '1.5rem',
-                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%)',
-                borderRadius: '1rem',
-                border: '1px solid rgba(16, 185, 129, 0.2)'
-              }}>
-                <h4 style={{
-                  fontSize: '1.125rem',
-                  fontWeight: '600',
-                  marginBottom: '1.5rem',
-                  color: '#1f2937',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.75rem'
-                }}>
-                  <span style={{ fontSize: '1.25rem' }}>👤➕</span>
-                  Añadir nuevo usuario
-                </h4>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '600', color: '#374151', marginBottom: '0.5rem' }}>
-                      Nombre de usuario
-                    </label>
-                    <input
-                      type="text"
-                      value={newUser.usuario}
-                      onChange={(e) => setNewUser(prev => ({ ...prev, usuario: e.target.value }))}
-                      placeholder="Nuevo usuario"
-                      style={{
-                        width: '100%',
-                        padding: '0.75rem',
-                        border: '1px solid #d1d5db',
-                        borderRadius: '0.75rem',
-                        fontSize: '0.875rem',
-                        outline: 'none',
-                        transition: 'all 0.3s ease',
-                        background: 'rgba(255, 255, 255, 0.7)'
-                      }}
-                      onFocus={(e) => e.target.style.borderColor = '#10b981'}
-                      onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '600', color: '#374151', marginBottom: '0.5rem' }}>
-                      Contraseña
-                    </label>
-                    <input
-                      type="password"
-                      value={newUser.contrasena}
-                      onChange={(e) => setNewUser(prev => ({ ...prev, contrasena: e.target.value }))}
-                      placeholder="Contraseña"
-                      style={{
-                        width: '100%',
-                        padding: '0.75rem',
-                        border: '1px solid #d1d5db',
-                        borderRadius: '0.75rem',
-                        fontSize: '0.875rem',
-                        outline: 'none',
-                        transition: 'all 0.3s ease',
-                        background: 'rgba(255, 255, 255, 0.7)'
-                      }}
-                      onFocus={(e) => e.target.style.borderColor = '#10b981'}
-                      onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '600', color: '#374151', marginBottom: '0.5rem' }}>
-                      Rol
-                    </label>
-                    <select
-                      value={newUser.role}
-                      onChange={(e) => setNewUser(prev => ({ ...prev, role: e.target.value }))}
-                      style={{
-                        width: '100%',
-                        padding: '0.75rem',
-                        border: '1px solid #d1d5db',
-                        borderRadius: '0.75rem',
-                        fontSize: '0.875rem',
-                        outline: 'none',
-                        transition: 'all 0.3s ease',
-                        background: 'rgba(255, 255, 255, 0.7)'
-                      }}
-                      onFocus={(e) => e.target.style.borderColor = '#10b981'}
-                      onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
-                    >
-                      <option value="editor">Editor</option>
-                      <option value="admin">Administrador</option>
-                    </select>
-                  </div>
+        {/* Añadir usuario */}
+        <div className="mt-8 p-6 bg-gradient-to-r from-green-50 to-blue-50 rounded-2xl border border-green-200">
+          <h4 className="text-lg font-semibold mb-6 text-gray-800 flex items-center">
+            <i className="fas fa-user-plus mr-3 text-green-600"></i>
+            Añadir nuevo usuario
+          </h4>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Nombre de usuario
+              </label>
+              <input
+                type="text"
+                value={newUserForm.usuario}
+                onChange={(e) => setNewUserForm(prev => ({ ...prev, usuario: e.target.value }))}
+                placeholder="Nuevo usuario"
+                className="w-full border border-gray-200 p-3 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none transition-all bg-white/70"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Contraseña
+              </label>
+              <input
+                type="password"
+                value={newUserForm.contrasena}
+                onChange={(e) => setNewUserForm(prev => ({ ...prev, contrasena: e.target.value }))}
+                placeholder="Contraseña"
+                className="w-full border border-gray-200 p-3 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none transition-all bg-white/70"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Rol
+              </label>
+              <select
+                value={newUserForm.role}
+                onChange={(e) => setNewUserForm(prev => ({ ...prev, role: e.target.value }))}
+                className="w-full border border-gray-200 p-3 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none transition-all bg-white/70"
+              >
+                <option value="editor">Editor</option>
+                <option value="admin">Administrador</option>
+              </select>
+            </div>
+          </div>
+          <button
+            onClick={handleAddUser}
+            className="mt-6 gradient-green text-white px-6 py-3 rounded-xl hover:shadow-lg transition-all flex items-center gap-3 shadow-md font-semibold transform hover:scale-105"
+          >
+            <i className="fas fa-user-plus"></i>
+            Añadir usuario
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      loadSessions();
+      loadUsers();
+    }
+  }, [isLoggedIn]);
+
+  return (
+    <>
+      <Head>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link
+          rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+        />
+        <style jsx>{`
+          .transition-all {
+            transition: all 0.3s ease;
+          }
+          .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+          }
+          .aspect-square {
+            aspect-ratio: 1;
+          }
+          .glass {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+          }
+          .gradient-blue {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          }
+          .gradient-purple {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+          }
+          .gradient-green {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+          }
+          .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+          }
+          .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 3px;
+          }
+          .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 3px;
+          }
+        `}</style>
+      </Head>
+
+      <div className="bg-gradient-to-br from-gray-50 via-blue-50 to-purple-50 text-gray-800 min-h-screen">
+        <header className="glass sticky top-0 z-50 border-b border-white/20 shadow-lg">
+          <div className="container mx-auto px-6 py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 gradient-blue rounded-xl flex items-center justify-center shadow-lg">
+                  <i className="fas fa-cog text-white text-lg"></i>
                 </div>
-                <button
-                  onClick={handleCreateUser}
-                  style={{
-                    marginTop: '1.5rem',
-                    padding: '0.75rem 1.5rem',
-                    background: 'linear-gradient(135deg, #10b981 0%, #3b82f6 100%)',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '0.75rem',
-                    cursor: 'pointer',
-                    fontWeight: '600',
-                    fontSize: '0.875rem',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.75rem',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                    transition: 'all 0.3s ease'
-                  }}
-                  onMouseEnter={(e) => e.target.style.transform = 'scale(1.05)'}
-                  onMouseLeave={(e) => e.target.style.transform = 'scale(1)'}
+                <div>
+                  <h1 className="text-xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                    Panel de Administración
+                  </h1>
+                  <p className="text-xs text-gray-500">
+                    Gestión de contenido audiovisual
+                  </p>
+                </div>
+                {isLoggedIn && (
+                  <span className={`px-3 py-1 text-xs font-semibold rounded-full text-white ${
+                    isAdmin() ? 'bg-gradient-to-r from-purple-500 to-purple-600' : 'bg-gradient-to-r from-blue-500 to-blue-600'
+                  }`}>
+                    <i className="fas fa-circle text-xs mr-1"></i>
+                    {isAdmin() ? 'Administrador' : 'Editor'}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-4">
+                {isLoggedIn && (
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{currentUser?.usuario}</span>
+                    <span className={`px-2 py-1 text-xs rounded-full ${
+                      isAdmin() ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
+                    }`}>
+                      {isAdmin() ? 'Admin' : 'Editor'}
+                    </span>
+                  </div>
+                )}
+                <a
+                  href="/"
+                  className="text-gray-600 hover:text-blue-600 hover:bg-white/50 px-4 py-2 rounded-lg transition-all flex items-center gap-2 backdrop-blur-sm"
                 >
-                  👤➕ Añadir usuario
-                </button>
+                  <i className="fas fa-arrow-left text-sm"></i>
+                  <span className="hidden sm:inline">Volver al Portafolio</span>
+                </a>
               </div>
             </div>
-          </section>
-        )}
-      </main>
-    </div>
+          </div>
+        </header>
+
+        <main className="container mx-auto p-6 space-y-8 max-w-7xl">
+          {!isLoggedIn ? (
+            <LoginSection />
+          ) : (
+            <>
+              <Navigation />
+              
+              {activeTab === 'upload-section' && <UploadSection />}
+              {activeTab === 'albums-section' && <AlbumsSection />}
+              {activeTab === 'users-section' && canManageUsers() && <UsersSection />}
+            </>
+          )}
+        </main>
+      </div>
+    </>
   );
 }
