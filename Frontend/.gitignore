@@ -1,3 +1,4 @@
+# Frontend/.gitignore
 # Dependencies
 node_modules/
 /.pnp
@@ -13,12 +14,7 @@ node_modules/
 # Production
 /build
 
-# Misc
-.DS_Store
-*.tsbuildinfo
-next-env.d.ts
-
-# Environment variables
+# Environment variables - ¡IMPORTANTE!
 .env
 .env.local
 .env.development.local
@@ -33,8 +29,7 @@ yarn-error.log*
 # IDE
 .vscode/
 .idea/
-*.swp
-*.swo
 
 # OS
+.DS_Store
 Thumbs.db
